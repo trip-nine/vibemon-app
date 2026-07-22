@@ -1,6 +1,6 @@
 {
   "name": "vibemon",
-  "version": "2.5.3-local.2",
+  "version": "2.5.3-local.3",
   "description": "Local-only AI agent operations recorder and status monitor",
   "main": "src/main.js",
   "bin": {

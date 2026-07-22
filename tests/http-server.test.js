@@ -201,6 +201,41 @@ describe('HttpServer request boundaries', () => {
     expect(debug.statusCode).toBe(200);
   });
 
+  test('reports local runtime presence without command arguments', async () => {
+    const { server } = createServer();
+    server.runtimeScanner = { scan: jest.fn(() => [
+      { pid: 12, parentPid: 1, terminal: 'ttys003', runtime: 'Claude Code', surface: 'CLI', telemetry: 'hooks' }
+    ]) };
+    const res = response();
+
+    await server.handleRequest(request('GET', '/runtimes'), res);
+
+    expect(JSON.parse(res.body).processes).toEqual([
+      { pid: 12, parentPid: 1, terminal: 'ttys003', runtime: 'Claude Code', surface: 'CLI', telemetry: 'hooks' }
+    ]);
+  });
+
+  test('installs supported local integrations from the dashboard', async () => {
+    const { server } = createServer();
+    const hookInstaller = {
+      installByFlag: jest.fn(async () => [{ result: { ok: true, changed: true, requiresTrust: true, trustInstructions: 'Trust it' } }]),
+      refreshStatuses: jest.fn(() => [{
+        name: 'Codex CLI', flag: '--codex', present: true, hasHook: true,
+        installAvailable: true, requiresTrust: true
+      }])
+    };
+    server.setHookInstaller(hookInstaller);
+    const res = response();
+
+    await server.handleRequest(request('POST', '/integrations/install', {
+      headers: { 'content-type': 'application/json' }, body: { flag: '--codex' }
+    }), res);
+
+    expect(res.statusCode).toBe(200);
+    expect(hookInstaller.installByFlag).toHaveBeenCalledWith('--codex');
+    expect(JSON.parse(res.body).result).toMatchObject({ ok: true, requiresTrust: true });
+  });
+
   test('accepts preflight requests', async () => {
     const { server } = createServer();
     const res = response();

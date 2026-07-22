@@ -80,7 +80,7 @@
       <h1>AI Tool Adapters</h1>
       <div class="notice">Adapters are installed only from files bundled in this fork. No remote installer is downloaded or executed.</div>
       <div class="rows" id="hook-list"></div>
-      <div style="margin-top:10px;color:var(--muted);font-size:11px;">Claude Code records lifecycle metadata but excludes prompt bodies, assistant messages, source contents, and tool-output bodies.</div>
+      <div style="margin-top:10px;color:var(--muted);font-size:11px;">Claude Code and Codex CLI record lifecycle metadata but exclude prompt bodies, assistant messages, source contents, and tool-output bodies. Codex requires approving the installed hooks with <code>/hooks</code> in a new terminal session.</div>
     </section>
 
     <section class="tab" id="tab-about">
@@ -113,11 +113,11 @@
     for (const tool of hooks) {
       const row = document.createElement('div'); row.className = 'row';
       const info = document.createElement('div');
-      info.innerHTML = `<div class="label">${tool.name}</div><div class="hint">${tool.flag === '--claude' ? 'Bundled local lifecycle adapter' : 'Live compatibility detection; richer adapter not bundled yet'}</div>`;
+      info.innerHTML = `<div class="label">${tool.name}</div><div class="hint">${tool.installAvailable ? 'Bundled local lifecycle adapter' : 'Process compatibility detection only; lifecycle adapter not bundled'}</div>`;
       const actions = document.createElement('div');
       if (!tool.present) {
         actions.innerHTML = '<span class="badge">Not detected</span>';
-      } else if (tool.flag === '--claude') {
+      } else if (tool.installAvailable) {
         const badge = document.createElement('span'); badge.className = 'badge ' + (tool.hasHook ? 'ok' : 'warn'); badge.textContent = tool.hasHook ? 'Installed' : 'Not installed';
         const button = document.createElement('button'); button.className = 'action'; button.style.marginLeft = '8px'; button.textContent = tool.hasHook ? 'Reinstall' : 'Install';
         button.addEventListener('click', async () => {
@@ -126,6 +126,10 @@
           catch { button.textContent = 'Failed'; setTimeout(load, 1200); }
         });
         actions.append(badge, button);
+        if (tool.requiresTrust && tool.hasHook) {
+          const trust = document.createElement('div'); trust.className = 'hint'; trust.style.marginTop = '5px'; trust.textContent = 'Run /hooks in a new Codex session to trust';
+          actions.append(trust);
+        }
       } else {
         actions.innerHTML = `<span class="badge ${tool.hasHook ? 'ok' : ''}">${tool.hasHook ? 'Compatible hook detected' : 'Adapter pending'}</span>`;
       }

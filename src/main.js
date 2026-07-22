@@ -396,6 +396,7 @@ app.whenReady().then(() => {
 
   // Start HTTP server
   httpServer = new HttpServer(stateManager, windowManager, app);
+  httpServer.setHookInstaller(hookInstaller);
   httpServer.onStateUpdate = (menuOnly) => {
     if (trayManager) {
       if (!menuOnly) {

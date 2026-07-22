@@ -10,6 +10,7 @@ const { HTTP_PORT, MAX_PAYLOAD_SIZE, RATE_LIMIT, RATE_WINDOW_MS, CHARACTER_NAMES
 const { setCorsHeaders, isAllowedOrigin, hasJsonContentType, sendJson, sendError, parseJsonBody } = require('./http-utils.cjs');
 const { validateStatusPayload } = require('./validators.cjs');
 const { EventStore } = require('./event-store.cjs');
+const { RuntimeScanner } = require('./runtime-scanner.cjs');
 const { installLocalOnlyGuard } = require('./local-only-guard.cjs');
 
 if (!process.env.JEST_WORKER_ID) installLocalOnlyGuard();
@@ -23,10 +24,16 @@ class HttpServer {
     this.windowManager = windowManager;
     this.app = app;
     this.eventStore = new EventStore(app);
+    this.runtimeScanner = new RuntimeScanner();
+    this.hookInstaller = null;
     this.onStateUpdate = null;
     this.onProjectSwitched = null;
     this.onError = null;
     this.requestCounts = new Map();
+  }
+
+  setHookInstaller(hookInstaller) {
+    this.hookInstaller = hookInstaller;
   }
 
   cleanupExpiredRateLimits() {
@@ -104,6 +111,9 @@ class HttpServer {
       case 'GET /history/summary': return this.handleGetHistorySummary(parsedUrl, res);
       case 'GET /history/agents': return this.handleGetAgentTree(parsedUrl, res);
       case 'GET /history/storage': return sendJson(res, 200, this.eventStore.getStorageInfo());
+      case 'GET /runtimes': return this.handleGetRuntimes(res);
+      case 'GET /integrations': return this.handleGetIntegrations(res);
+      case 'POST /integrations/install': return this.handleInstallIntegration(req, res);
       case 'POST /close': return this.handlePostClose(req, res);
       case 'GET /health': return this.handleGetHealth(res);
       case 'POST /show': return this.handlePostShow(req, res);
@@ -115,6 +125,48 @@ class HttpServer {
         res.writeHead(404);
         return res.end('Not Found');
     }
+  }
+
+  handleGetRuntimes(res) {
+    return sendJson(res, 200, { processes: this.runtimeScanner.scan() });
+  }
+
+  integrationView() {
+    if (!this.hookInstaller) return [];
+    return this.hookInstaller.refreshStatuses().map(tool => ({
+      name: tool.name,
+      flag: tool.flag,
+      present: Boolean(tool.present),
+      hasHook: Boolean(tool.hasHook),
+      installAvailable: Boolean(tool.installAvailable),
+      requiresTrust: Boolean(tool.requiresTrust),
+      localOnly: true
+    }));
+  }
+
+  handleGetIntegrations(res) {
+    return sendJson(res, 200, { integrations: this.integrationView() });
+  }
+
+  async handleInstallIntegration(req, res) {
+    const data = await this.readJson(req, res);
+    if (data === null) return;
+    const flag = data && typeof data.flag === 'string' ? data.flag : '';
+    if (!this.hookInstaller || !['--claude', '--codex'].includes(flag)) {
+      return sendError(res, 400, 'A supported integration flag is required');
+    }
+    const results = await this.hookInstaller.installByFlag(flag);
+    const result = results[0] ? results[0].result : { ok: false, reason: 'not-found' };
+    return sendJson(res, result.ok ? 200 : 500, {
+      result: {
+        ok: Boolean(result.ok),
+        changed: Boolean(result.changed),
+        requiresTrust: Boolean(result.requiresTrust),
+        trustInstructions: result.trustInstructions || null,
+        reason: result.reason || null
+      },
+      integrations: this.integrationView()
+    });
   }
 
   async readJson(req, res) {

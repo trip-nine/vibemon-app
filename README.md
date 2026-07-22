@@ -25,17 +25,18 @@ VibeMon does not talk to agent runtimes directly. Each supported agent is bridge
 
 | Agent | Bridge type | Tool visibility | Notes |
 |------|-------------|-----------------|-------|
-| Claude Code | Native hooks | Broad | Best documented lifecycle and tool coverage |
-| Codex | Native hooks + `codex exec --json` | Partial in interactive mode, broad in automation | Interactive hooks are experimental and currently Bash-focused |
-| Kiro | Native hooks | Broad | Good tool-level hooks with MCP-aware tool names |
-| OpenClaw | Plugin bridge | Plugin-dependent | Uses plugin SDK hooks rather than the simpler internal hook system |
+| Claude Code CLI | Bundled local lifecycle hooks | Broad | Install from the dashboard or Settings |
+| Codex CLI | Bundled local lifecycle hooks | Broad | Install, then approve with `/hooks` in a new Codex session |
+| Claude Desktop | Local process presence only | None | The desktop app does not expose the CLI lifecycle-hook stream |
+| Codex desktop app | Local process presence only | None | The desktop app does not expose the CLI lifecycle-hook stream |
+| Kiro / OpenClaw | Process compatibility detection | Pending | No reviewed local adapter is bundled in this fork yet |
 
 ### Support Quality
 
-- **Claude Code**: Richest hook surface. Best fit for real-time state, permissions, compacting, and subagent-aware monitoring.
-- **Codex**: Strong support, but split by mode. Interactive sessions expose limited tool hooks today, while `codex exec --json` is better for CI and automation.
-- **Kiro**: Clean hook model for prompt, tool, and stop events. Practical fit for real-time monitoring.
-- **OpenClaw**: Best supported through plugins. Internal hooks are session/message oriented, so plugin SDK integration is the right path for VibeMon.
+- **Claude Code CLI**: Bundled adapter records lifecycle, tools, models, and subagent metadata.
+- **Codex CLI**: Bundled adapter uses Codex lifecycle hooks. Codex requires reviewing and trusting new hooks with `/hooks`.
+- **Desktop apps**: Shown as running through local process discovery, but detailed telemetry is unavailable without a public lifecycle-hook stream.
+- **Kiro / OpenClaw**: Listed honestly as adapter-pending until reviewed local bridges are bundled.
 
 ## What It Monitors
 
@@ -66,7 +67,7 @@ That's it! The app launches in the system tray and listens on `http://127.0.0.1:
 
 `vibemon --version` prints the installed version, `vibemon --help` prints usage — both exit without launching the app.
 
-Open **Settings > AI Tools** from the tray menu and click **Install** for Claude Code, Codex CLI, Kiro IDE, or OpenClaw — this sets up the hooks and collector config for you, no separate installer needed. See [Settings Window](docs/features.md#settings-window) for details.
+Use the **Telemetry adapters** panel in the dashboard, or open **Settings > AI Tools**, to install the bundled Claude Code and Codex CLI adapters. Restart existing Claude Code terminals after installation. For Codex, start a new session, run `/hooks`, and trust the VibeMon Local hooks.
 
 ## Preview
 

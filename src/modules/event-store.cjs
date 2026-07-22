@@ -119,6 +119,7 @@ class EventStore {
       source: cleanString(meta.source || data.source, 64) || 'local',
       eventType: cleanString(firstValue(data, ['eventType', 'event_type']), 96) ||
         (data.state ? 'status' : 'agent-event'),
+      runtime: cleanString(firstValue(data, ['runtime', 'provider', 'harness']), 64),
       project: cleanString(data.project, 256),
       repo: cleanString(firstValue(data, ['repo', 'repository']), 512),
       branch: cleanString(data.branch, 256),

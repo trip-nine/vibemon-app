@@ -20,6 +20,9 @@ HOST = "127.0.0.1"
 PORT = 19280
 EVENTS_PATH = "/events"
 TIMEOUT_SECONDS = 0.75
+RUNTIME = os.environ.get("VIBEMON_RUNTIME") or (
+    "codex" if pathlib.Path(__file__).stem.lower().startswith("codex") else "claude"
+)
 
 
 def _text(value: Any, limit: int = 4096) -> str | None:
@@ -105,7 +108,8 @@ def _base_event(payload: dict[str, Any]) -> dict[str, Any]:
     cwd = _text(payload.get("cwd"), 2048)
     hook_name = _text(payload.get("hook_event_name"), 128) or "Unknown"
     event = {
-        "eventType": f"claude.{hook_name}",
+        "eventType": f"{RUNTIME}.{hook_name}",
+        "runtime": RUNTIME,
         "sessionId": session_id,
         "agentId": current_agent_id or (f"session:{session_id}" if session_id else None),
         "agentType": _text(payload.get("agent_type"), 128),

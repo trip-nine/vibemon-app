@@ -12,7 +12,7 @@ const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const Store = require('electron-store');
-const { installClaudeHooks } = require('../../scripts/install-local-hooks.cjs');
+const { installClaudeHooks, installCodexHooks } = require('../../scripts/install-local-hooks.cjs');
 
 function homePath(...segments) { return path.join(os.homedir(), ...segments); }
 
@@ -23,7 +23,7 @@ const TOOLS = [
   },
   {
     name: 'Codex CLI', flag: '--codex', command: 'codex', homeDir: homePath('.codex'),
-    hookFile: homePath('.codex', 'hooks', 'vibemon.py')
+    hookFile: homePath('.vibemon', 'hooks', 'codex.py'), requiresTrust: true
   },
   {
     name: 'Kiro IDE', flag: '--kiro', command: 'kiro', homeDir: homePath('.kiro'),
@@ -82,7 +82,8 @@ class HookInstaller {
       present: this.isPresent(tool),
       hasHook: this.hasHook(tool),
       changed: false,
-      installAvailable: tool.flag === '--claude',
+      installAvailable: tool.flag === '--claude' || tool.flag === '--codex',
+      requiresTrust: Boolean(tool.requiresTrust),
       localOnly: true
     }));
     return this.cachedStatuses;
@@ -109,7 +110,7 @@ class HookInstaller {
   async installTools(tools) {
     const results = [];
     for (const tool of tools) {
-      if (tool.flag !== '--claude') {
+      if (tool.flag !== '--claude' && tool.flag !== '--codex') {
         results.push({
           tool,
           result: {
@@ -121,7 +122,7 @@ class HookInstaller {
         continue;
       }
       try {
-        const installed = installClaudeHooks();
+        const installed = tool.flag === '--claude' ? installClaudeHooks() : installCodexHooks();
         results.push({ tool, result: { ok: true, ...installed } });
       } catch (error) {
         results.push({ tool, result: { ok: false, reason: 'local-install-failed', error: error.message } });

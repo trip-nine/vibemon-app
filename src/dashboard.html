@@ -56,6 +56,15 @@
     .indent { display: inline-block; width: calc(var(--depth) * 15px); }
     .storage { margin-top: 14px; color: var(--muted); font-size: 11px; word-break: break-all; }
     .empty { color: var(--muted); padding: 22px 4px; text-align: center; }
+    .runtime-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 2px; border-bottom: 1px solid #172b39; }
+    .runtime-row:last-child { border-bottom: 0; }
+    .runtime-title { font-weight: 700; font-size: 13px; }
+    .runtime-meta { color: var(--muted); font-size: 11px; margin-top: 3px; }
+    .status { border-radius: 999px; padding: 4px 8px; font-size: 10px; font-weight: 750; white-space: nowrap; }
+    .status.ok { color: #9affbd; background: #10351e; border: 1px solid #23683b; }
+    .status.warn { color: #ffd18a; background: #3b2a10; border: 1px solid #76531d; }
+    .status.dim { color: var(--muted); background: var(--panel2); border: 1px solid var(--border); }
+    .setup-note { color: var(--muted); font-size: 11px; line-height: 1.45; margin-top: 10px; }
     @media (max-width: 1050px) {
       .filters, .cards { grid-template-columns: repeat(2, minmax(130px, 1fr)); }
       .grid { grid-template-columns: 1fr; }
@@ -92,6 +101,18 @@
     <div class="card"><div class="label">Models</div><div class="value" id="models">—</div></div>
     <div class="card"><div class="label">Tokens</div><div class="value" id="tokens">—</div></div>
     <div class="card"><div class="label">Reported Cost</div><div class="value" id="cost">—</div></div>
+  </section>
+
+  <section class="grid">
+    <div class="panel">
+      <div class="panel-head"><h2>Live runtimes</h2><span class="muted">local process presence</span></div>
+      <div id="runtimeRows"></div>
+      <div class="setup-note">Desktop apps expose presence only. Detailed sessions, tools, models, tokens, and subagent lineage require lifecycle hooks from Claude Code or Codex CLI.</div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h2>Telemetry adapters</h2><span class="muted">local-only setup</span></div>
+      <div id="integrationRows"></div>
+    </div>
   </section>
 
   <section class="grid">
@@ -234,19 +255,76 @@
     if (!events.length) box.innerHTML = '<div class="empty">No historical events match the current filters.</div>';
   }
 
+  function renderRuntimes(processes) {
+    const box = $('runtimeRows');
+    box.innerHTML = '';
+    for (const process of processes) {
+      const row = document.createElement('div'); row.className = 'runtime-row';
+      const info = document.createElement('div');
+      const title = document.createElement('div'); title.className = 'runtime-title'; title.textContent = process.runtime;
+      const meta = document.createElement('div'); meta.className = 'runtime-meta';
+      meta.textContent = process.terminal ? `${process.surface} · ${process.terminal} · PID ${process.pid}` : `${process.surface} · PID ${process.pid}`;
+      info.append(title, meta);
+      const badge = document.createElement('span'); badge.className = `status ${process.telemetry === 'hooks' ? 'ok' : 'dim'}`;
+      badge.textContent = process.telemetry === 'hooks' ? 'HOOK CAPABLE' : 'PRESENCE ONLY';
+      row.append(info, badge); box.append(row);
+    }
+    if (!processes.length) box.innerHTML = '<div class="empty">No supported local runtimes detected.</div>';
+  }
+
+  function renderIntegrations(integrations) {
+    const box = $('integrationRows');
+    box.innerHTML = '';
+    for (const integration of integrations.filter(item => item.flag === '--claude' || item.flag === '--codex')) {
+      const row = document.createElement('div'); row.className = 'runtime-row';
+      const info = document.createElement('div');
+      const title = document.createElement('div'); title.className = 'runtime-title'; title.textContent = integration.name;
+      const meta = document.createElement('div'); meta.className = 'runtime-meta';
+      meta.textContent = integration.hasHook
+        ? (integration.requiresTrust ? 'Installed · approve with /hooks in a new Codex session' : 'Installed · restart existing terminals')
+        : (integration.present ? 'Detected but not connected' : 'Runtime not detected');
+      info.append(title, meta);
+      const actions = document.createElement('div');
+      const badge = document.createElement('span'); badge.className = `status ${integration.hasHook ? 'ok' : 'warn'}`;
+      badge.textContent = integration.hasHook ? 'INSTALLED' : 'NOT CONNECTED';
+      actions.append(badge);
+      if (integration.present && integration.installAvailable) {
+        const button = document.createElement('button'); button.style.marginLeft = '8px'; button.textContent = integration.hasHook ? 'Reinstall' : 'Install';
+        button.addEventListener('click', async () => {
+          button.disabled = true; button.textContent = 'Installing…';
+          try {
+            const response = await fetch('/integrations/install', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ flag: integration.flag })
+            });
+            const data = await response.json();
+            renderIntegrations(data.integrations || []);
+          } catch (error) {
+            console.error(error); button.disabled = false; button.textContent = 'Retry';
+          }
+        });
+        actions.append(button);
+      }
+      row.append(info, actions); box.append(row);
+    }
+  }
+
   async function refresh() {
     $('refresh').disabled = true;
     try {
       const query = params();
       const eventQuery = params(true);
-      const [summary, history, agents] = await Promise.all([
+      const [summary, history, agents, runtimes, integrations] = await Promise.all([
         fetch('/history/summary?' + query).then(response => response.json()),
         fetch('/history?' + eventQuery).then(response => response.json()),
-        fetch('/history/agents?' + query).then(response => response.json())
+        fetch('/history/agents?' + query).then(response => response.json()),
+        fetch('/runtimes').then(response => response.json()),
+        fetch('/integrations').then(response => response.json())
       ]);
       renderSummary(summary);
       renderTimeline(history.events || []);
       renderAgents(agents.agents || []);
+      renderRuntimes(runtimes.processes || []);
+      renderIntegrations(integrations.integrations || []);
     } catch (error) {
       console.error(error);
     } finally {
