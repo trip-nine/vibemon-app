@@ -97,6 +97,7 @@ All fields are optional on `/events`. `/status` still requires a valid live `sta
 - `GET /history/storage`
 - `GET /dashboard-data`
 - `GET /runtimes`
+- `GET /runtimes/catalog`
 - `GET /runtimes/history?since=&limit=`
 - `GET /runtimes/summary?since=&limit=`
 
@@ -120,6 +121,32 @@ The dashboard at `http://127.0.0.1:19280/` shows:
 The distinction prevents process activity from being misrepresented as AI
 activity. For example, VS Code CPU usage proves only that VS Code is busy; it
 does not prove which extension or model caused the work.
+
+## Runtime coverage catalog
+
+The built-in catalog covers Claude, Codex, LM Studio, Cursor, VS Code,
+Antigravity IDE/CLI, Hermes Agent, Grok CLI, Goose, Kimi Code CLI, Gemini CLI,
+OpenClaw, OpenCode, Qwen Code, Aider, Crush, Amp, GitHub Copilot CLI,
+OpenHands, Factory Droid, Kiro, Windsurf, Ollama, and OpenRouter attribution.
+
+`GET /runtimes/catalog` reports whether each local executable/application is
+installed. It never launches the runtime. The dashboard combines this with live
+process samples and recorded events to label entries as supported, installed,
+running, or attributed.
+
+Additional definitions can be placed in
+`~/.vibemon/runtime-signatures.json`. Each definition can use:
+
+- `runtime`: display name;
+- `surface`: `CLI`, `IDE`, `Desktop`, or another short local label;
+- `telemetry`: `presence-only`, `hooks`, `workspace-hooks`, `local-api`, or `event-api`;
+- `executables`: exact executable basenames;
+- `pathContains`: privacy-safe executable-path fragments;
+- `installPaths`: absolute application paths used only for installed-state checks.
+
+The scanner still requests executable paths rather than command arguments, so
+custom matching cannot expose prompts, shell commands, API keys, or environment
+variables.
 
 ## Model and cost attribution
 

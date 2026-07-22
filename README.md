@@ -17,7 +17,9 @@ It stores everything on this computer and rejects non-loopback network traffic.
 | LM Studio | Process resources + local `lms ps --json` | Loaded models | Records model metadata, never prompts/responses |
 | Cursor / VS Code | Process resources + optional companion extension | Workspace activity | Cannot inspect another extension's private AI chat or token stream |
 | Antigravity | Process resources + documented workspace `PreToolUse` hook | Partial tool activity | Install per workspace; current reviewed hook observes `run_command` |
-| Kiro / Windsurf / Ollama / Aider / OpenClaw | Process/resource discovery | Presence | Higher-fidelity adapters remain product-specific work |
+| Hermes / Grok / Goose / Kimi / Gemini / OpenClaw | Installed-state catalog + process/resource discovery | Presence and local event API | Structured model/token/agent data requires a product hook or event emitter |
+| OpenRouter | Provider/event attribution | Events supplied locally | It is a cloud provider, not a local process; VibeMon never polls its cloud API |
+| Kiro / Windsurf / Ollama / Aider / OpenCode / Qwen Code / Crush / Amp / OpenHands | Installed-state catalog + process/resource discovery | Presence | Higher-fidelity adapters remain product-specific work |
 
 ### Support Quality
 
@@ -27,6 +29,7 @@ It stores everything on this computer and rejects non-loopback network traffic.
 - **LM Studio**: Loaded model identity, size, quantization, context, and state are read from its local CLI.
 - **VS Code / Cursor**: The companion extension records workspace, terminal, task, and save lifecycle metadata.
 - **Antigravity**: A workspace installer merges the documented local hook without replacing existing hooks.
+- **Emerging CLIs**: The coverage catalog shows supported, installed, running, and event-attributed states separately.
 - **Kiro / OpenClaw**: Listed honestly as adapter-pending until reviewed local bridges are bundled.
 
 ## What It Monitors
@@ -62,6 +65,27 @@ npm run install:antigravity-hooks -- /absolute/path/to/workspace
 
 The VS Code/Cursor companion source is under
 `integrations/vscode-vibemon`. Its README explains local development install.
+
+### Add another runtime without rebuilding
+
+Create `~/.vibemon/runtime-signatures.json`:
+
+```json
+{
+  "signatures": [
+    {
+      "runtime": "My Agent",
+      "surface": "CLI",
+      "telemetry": "event-api",
+      "executables": ["my-agent"],
+      "pathContains": ["/.my-agent/"]
+    }
+  ]
+}
+```
+
+VibeMon reloads the file during process sampling. Custom definitions are shown
+in the Runtime coverage panel and are validated before use.
 
 ## Preview
 

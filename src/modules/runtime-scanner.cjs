@@ -8,41 +8,10 @@
 
 const path = require('path');
 const { execFileSync } = require('child_process');
+const { BUILTIN_RUNTIME_SIGNATURES, RuntimeCatalog, classifyFromSignatures } = require('./runtime-catalog.cjs');
 
-const PROCESS_SIGNATURES = [
-  { test: value => value.includes('/Claude.app/'), runtime: 'Claude', surface: 'Desktop', telemetry: 'presence-only' },
-  { test: value => value.includes('/ChatGPT.app/'), runtime: 'Codex', surface: 'Desktop', telemetry: 'presence-only' },
-  { test: value => value.includes('/LM Studio.app/'), runtime: 'LM Studio', surface: 'Desktop', telemetry: 'local-api' },
-  { test: value => value.includes('/Cursor.app/'), runtime: 'Cursor', surface: 'IDE', telemetry: 'presence-only' },
-  { test: value => value.includes('/Visual Studio Code.app/'), runtime: 'VS Code', surface: 'IDE', telemetry: 'presence-only' },
-  { test: value => value.includes('/Antigravity IDE.app/'), runtime: 'Antigravity', surface: 'IDE', telemetry: 'workspace-hooks' },
-  { test: value => value.includes('/Antigravity.app/'), runtime: 'Antigravity', surface: 'Desktop', telemetry: 'presence-only' },
-  { test: value => value.includes('/Kiro.app/'), runtime: 'Kiro', surface: 'IDE', telemetry: 'presence-only' },
-  { test: value => value.includes('/Windsurf.app/'), runtime: 'Windsurf', surface: 'IDE', telemetry: 'presence-only' }
-];
-
-const BASENAME_SIGNATURES = new Map([
-  ['claude', { runtime: 'Claude Code', surface: 'CLI', telemetry: 'hooks' }],
-  ['codex', { runtime: 'Codex CLI', surface: 'CLI', telemetry: 'hooks' }],
-  ['lms', { runtime: 'LM Studio', surface: 'CLI', telemetry: 'local-api' }],
-  ['llama-server', { runtime: 'LM Studio', surface: 'Inference Engine', telemetry: 'local-api' }],
-  ['ollama', { runtime: 'Ollama', surface: 'Local Model Server', telemetry: 'local-api' }],
-  ['aider', { runtime: 'Aider', surface: 'CLI', telemetry: 'presence-only' }],
-  ['openclaw', { runtime: 'OpenClaw', surface: 'CLI', telemetry: 'presence-only' }],
-  ['kiro-cli', { runtime: 'Kiro', surface: 'CLI', telemetry: 'presence-only' }],
-  ['antigravity', { runtime: 'Antigravity', surface: 'CLI', telemetry: 'workspace-hooks' }]
-]);
-
-function classifyProcess(commandPath) {
-  const command = String(commandPath || '').trim();
-  if (!command) return null;
-  for (const signature of PROCESS_SIGNATURES) {
-    if (signature.test(command)) {
-      return { runtime: signature.runtime, surface: signature.surface, telemetry: signature.telemetry };
-    }
-  }
-  const name = path.basename(command).toLowerCase();
-  return BASENAME_SIGNATURES.get(name) || null;
+function classifyProcess(commandPath, signatures = BUILTIN_RUNTIME_SIGNATURES) {
+  return classifyFromSignatures(commandPath, signatures);
 }
 
 function parseElapsedTime(value) {
@@ -58,7 +27,7 @@ function parseElapsedTime(value) {
   return seconds;
 }
 
-function parseRawProcessList(body) {
+function parseRawProcessList(body, signatures = BUILTIN_RUNTIME_SIGNATURES) {
   const processes = [];
   for (const line of String(body || '').split('\n')) {
     const match = line.match(/^\s*(\d+)\s+(\d+)\s+([\d.]+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(\S+)\s+(.+?)\s*$/);
@@ -72,7 +41,7 @@ function parseRawProcessList(body) {
       uptimeSeconds: parseElapsedTime(match[6]),
       terminal: match[7] === '??' ? null : match[7],
       executable: match[8],
-      classified: classifyProcess(match[8])
+      classified: classifyProcess(match[8], signatures)
     });
   }
   return processes;
@@ -170,13 +139,14 @@ function aggregateProcesses(rawProcesses) {
   return collapsed.sort((a, b) => a.runtime.localeCompare(b.runtime) || a.surface.localeCompare(b.surface) || a.pid - b.pid);
 }
 
-function parseProcessList(body) {
-  return aggregateProcesses(parseRawProcessList(body));
+function parseProcessList(body, signatures = BUILTIN_RUNTIME_SIGNATURES) {
+  return aggregateProcesses(parseRawProcessList(body, signatures));
 }
 
 class RuntimeScanner {
   constructor(options = {}) {
     this.execFileSync = options.execFileSync || execFileSync;
+    this.runtimeCatalog = options.runtimeCatalog || new RuntimeCatalog(options);
   }
 
   scan() {
@@ -190,7 +160,14 @@ class RuntimeScanner {
     } catch {
       return [];
     }
-    return parseProcessList(output);
+    return parseProcessList(output, this.runtimeCatalog.signatures());
+  }
+
+  catalog() {
+    return {
+      runtimes: this.runtimeCatalog.catalog(),
+      customSignatureFile: this.runtimeCatalog.signatureFile
+    };
   }
 }
 

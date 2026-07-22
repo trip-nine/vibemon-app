@@ -12,6 +12,11 @@ describe('runtime scanner', () => {
     expect(classifyProcess('/Applications/Visual Studio Code.app/Contents/MacOS/Electron')).toMatchObject({ runtime: 'VS Code', surface: 'IDE' });
     expect(classifyProcess('/Applications/Antigravity IDE.app/Contents/MacOS/Antigravity IDE')).toMatchObject({ runtime: 'Antigravity', surface: 'IDE' });
     expect(classifyProcess('/models/bin/llama-server')).toMatchObject({ runtime: 'LM Studio', surface: 'Inference Engine' });
+    expect(classifyProcess('/Users/demo/.local/bin/hermes')).toMatchObject({ runtime: 'Hermes Agent', surface: 'CLI' });
+    expect(classifyProcess('/Users/demo/.local/bin/grok')).toMatchObject({ runtime: 'Grok CLI', surface: 'CLI' });
+    expect(classifyProcess('/Users/demo/.local/bin/agy')).toMatchObject({ runtime: 'Antigravity CLI', surface: 'CLI' });
+    expect(classifyProcess('/Users/demo/.local/bin/goose')).toMatchObject({ runtime: 'Goose', surface: 'CLI' });
+    expect(classifyProcess('/Users/demo/.kimi-code/bin/kimi')).toMatchObject({ runtime: 'Kimi Code CLI', surface: 'CLI' });
     expect(classifyProcess('/bin/zsh')).toBeNull();
   });
 

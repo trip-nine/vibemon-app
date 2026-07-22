@@ -226,6 +226,18 @@ describe('HttpServer request boundaries', () => {
     expect(server.runtimeMonitor.summary).toHaveBeenCalledWith({ since: '2026-01-01', limit: undefined });
   });
 
+  test('returns the installed and supported runtime catalog', async () => {
+    const { server } = createServer();
+    server.runtimeMonitor = {
+      scanner: { catalog: jest.fn(() => ({ runtimes: [{ runtime: 'Hermes Agent', installed: true }], customSignatureFile: '/local/signatures.json' })) }
+    };
+    const res = response();
+    await server.handleRequest(request('GET', '/runtimes/catalog'), res);
+    expect(JSON.parse(res.body)).toEqual({
+      runtimes: [{ runtime: 'Hermes Agent', installed: true }], customSignatureFile: '/local/signatures.json'
+    });
+  });
+
   test('installs supported local integrations from the dashboard', async () => {
     const { server } = createServer();
     const hookInstaller = {

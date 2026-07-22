@@ -116,6 +116,7 @@ class HttpServer {
       case 'GET /history/agents': return this.handleGetAgentTree(parsedUrl, res);
       case 'GET /history/storage': return sendJson(res, 200, this.eventStore.getStorageInfo());
       case 'GET /runtimes': return this.handleGetRuntimes(res);
+      case 'GET /runtimes/catalog': return this.handleGetRuntimeCatalog(res);
       case 'GET /runtimes/history': return this.handleGetRuntimeHistory(parsedUrl, res);
       case 'GET /runtimes/summary': return this.handleGetRuntimeSummary(parsedUrl, res);
       case 'GET /integrations': return this.handleGetIntegrations(res);
@@ -135,6 +136,10 @@ class HttpServer {
 
   handleGetRuntimes(res) {
     return sendJson(res, 200, this.runtimeMonitor.current());
+  }
+
+  handleGetRuntimeCatalog(res) {
+    return sendJson(res, 200, this.runtimeMonitor.scanner.catalog());
   }
 
   runtimeFilters(url) {
