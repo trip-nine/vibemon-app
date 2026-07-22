@@ -5,6 +5,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { URL } = require('url');
 const { HTTP_PORT } = require('../shared/config.cjs');
 
 const VIBEMON_HOME = path.join(os.homedir(), '.vibemon');

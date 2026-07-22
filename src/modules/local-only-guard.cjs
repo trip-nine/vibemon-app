@@ -10,6 +10,7 @@ const http = require('http');
 const https = require('https');
 const net = require('net');
 const tls = require('tls');
+const { URL } = require('url');
 
 const INSTALLED = Symbol.for('vibemon.localOnlyGuard.installed');
 

@@ -2,9 +2,9 @@
 const { VALID_STATES } = require('../shared/config.cjs');
 
 const LIMITS = {
-  project: 256,
-  tool: 128,
-  model: 256,
+  project: 128,
+  tool: 64,
+  model: 64,
   character: 64,
   terminalId: 100,
   identifier: 256,
@@ -40,6 +40,9 @@ function validateUsageLabel(value) { return validateOptionalString(value, 'usage
 
 function validateMemory(memory) {
   if (memory === undefined || memory === null || memory === '') return ok();
+  if (typeof memory !== 'number' || !Number.isFinite(memory)) {
+    return fail('Memory must be a number');
+  }
   if (!Number.isInteger(memory) || memory < 0 || memory > 100) {
     return fail('Memory must be an integer between 0 and 100');
   }

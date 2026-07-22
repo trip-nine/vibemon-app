@@ -7,6 +7,7 @@
  */
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
 
@@ -64,7 +65,10 @@ function sum(values) {
 
 class EventStore {
   constructor(app, options = {}) {
-    this.baseDir = options.baseDir || path.join(app.getPath('userData'), 'history');
+    const userDataDir = app && typeof app.getPath === 'function'
+      ? app.getPath('userData')
+      : path.join(os.tmpdir(), 'vibemon-local');
+    this.baseDir = options.baseDir || path.join(userDataDir, 'history');
     this.maxInMemoryEvents = options.maxInMemoryEvents || MAX_IN_MEMORY_EVENTS;
     this.events = [];
     this.loaded = false;
