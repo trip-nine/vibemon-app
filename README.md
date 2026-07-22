@@ -1,41 +1,36 @@
-# VibeMon
+# VibeMon Local
 
-[![npm version](https://img.shields.io/npm/v/vibemon.svg)](https://www.npmjs.com/package/vibemon)
-[![npm downloads](https://img.shields.io/npm/dm/vibemon.svg)](https://www.npmjs.com/package/vibemon)
-[![license](https://img.shields.io/npm/l/vibemon.svg)](https://github.com/opspresso/vibemon-app/blob/main/LICENSE)
+**Local-only AI runtime monitor and historical agent operations recorder.**
 
-**Real-time status monitor for AI assistants with pixel art character display.**
+VibeMon Local combines privacy-preserving process/resource observation with
+high-fidelity adapters where a runtime exposes supported hooks or a local API.
+It stores everything on this computer and rejects non-loopback network traffic.
 
-See at a glance what your AI assistant is doing — thinking, working, or waiting for input. A cute pixel art character visually represents the current state.
-
-Desktop (Electron) app for VibeMon. For the ESP32 hardware display, see [vibemon-esp32](https://github.com/opspresso/vibemon-esp32).
-
-## Supported Tools
-
-| Tool | Description |
-|------|-------------|
-| **[Claude Code](https://claude.ai/code)** | Anthropic's official AI coding assistant |
-| **[Codex](https://openai.com/codex)** | OpenAI's AI coding agent |
-| **[Kiro](https://kiro.dev/)** | AWS's AI coding assistant |
-| **[OpenClaw](https://openclaw.ai/)** | Open-source computer use agent |
-
-## Agent Integration Model
-
-VibeMon does not talk to agent runtimes directly. Each supported agent is bridged into the same status payload and then rendered by the Desktop App (or the [ESP32 display](https://github.com/opspresso/vibemon-esp32)).
+## Integration model
 
 | Agent | Bridge type | Tool visibility | Notes |
 |------|-------------|-----------------|-------|
-| Claude Code | Native hooks | Broad | Best documented lifecycle and tool coverage |
-| Codex | Native hooks + `codex exec --json` | Partial in interactive mode, broad in automation | Interactive hooks are experimental and currently Bash-focused |
-| Kiro | Native hooks | Broad | Good tool-level hooks with MCP-aware tool names |
-| OpenClaw | Plugin bridge | Plugin-dependent | Uses plugin SDK hooks rather than the simpler internal hook system |
+| Claude Code CLI | Bundled local lifecycle hooks | Broad | Install from the dashboard or Settings |
+| Codex CLI | Bundled local lifecycle hooks | Broad | Install, then approve with `/hooks` in a new Codex session |
+| Claude Desktop | Process tree + CPU/RAM/uptime | Presence | No supported passive lifecycle stream is exposed to VibeMon |
+| Codex desktop app | Process tree + CPU/RAM/uptime | Presence | CLI hooks do not observe unrelated desktop tasks |
+| LM Studio | Process resources + local `lms ps --json` | Loaded models | Records model metadata, never prompts/responses |
+| Cursor / VS Code | Process resources + optional companion extension | Workspace activity | Cannot inspect another extension's private AI chat or token stream |
+| Antigravity | Process resources + documented workspace `PreToolUse` hook | Partial tool activity | Install per workspace; current reviewed hook observes `run_command` |
+| Hermes / Grok / Goose / Kimi / Gemini / OpenClaw | Installed-state catalog + process/resource discovery | Presence and local event API | Structured model/token/agent data requires a product hook or event emitter |
+| OpenRouter | Provider/event attribution | Events supplied locally | It is a cloud provider, not a local process; VibeMon never polls its cloud API |
+| Kiro / Windsurf / Ollama / Aider / OpenCode / Qwen Code / Crush / Amp / OpenHands | Installed-state catalog + process/resource discovery | Presence | Higher-fidelity adapters remain product-specific work |
 
 ### Support Quality
 
-- **Claude Code**: Richest hook surface. Best fit for real-time state, permissions, compacting, and subagent-aware monitoring.
-- **Codex**: Strong support, but split by mode. Interactive sessions expose limited tool hooks today, while `codex exec --json` is better for CI and automation.
-- **Kiro**: Clean hook model for prompt, tool, and stop events. Practical fit for real-time monitoring.
-- **OpenClaw**: Best supported through plugins. Internal hooks are session/message oriented, so plugin SDK integration is the right path for VibeMon.
+- **Claude Code CLI**: Bundled adapter records lifecycle, tools, models, and subagent metadata.
+- **Codex CLI**: Bundled adapter uses Codex lifecycle hooks. Codex requires reviewing and trusting new hooks with `/hooks`.
+- **Desktop apps and IDEs**: Process trees, CPU, RAM, process counts, and uptime are sampled into owner-only local history.
+- **LM Studio**: Loaded model identity, size, quantization, context, and state are read from its local CLI.
+- **VS Code / Cursor**: The companion extension records workspace, terminal, task, and save lifecycle metadata.
+- **Antigravity**: A workspace installer merges the documented local hook without replacing existing hooks.
+- **Emerging CLIs**: The coverage catalog shows supported, installed, running, and event-attributed states separately.
+- **Kiro / OpenClaw**: Listed honestly as adapter-pending until reviewed local bridges are bundled.
 
 ## What It Monitors
 
@@ -49,24 +44,48 @@ VibeMon does not talk to agent runtimes directly. Each supported agent is bridge
 
 ## Quick Start
 
-Homebrew (macOS, recommended):
+From this fork:
 
 ```bash
-brew tap opspresso/tap
-brew install opspresso/tap/vibemon
-```
-
-Or via npm:
-
-```bash
-npx vibemon
+npm install
+npm start
 ```
 
 That's it! The app launches in the system tray and listens on `http://127.0.0.1:19280`.
 
 `vibemon --version` prints the installed version, `vibemon --help` prints usage — both exit without launching the app.
 
-Open **Settings > AI Tools** from the tray menu and click **Install** for Claude Code, Codex CLI, Kiro IDE, or OpenClaw — this sets up the hooks and collector config for you, no separate installer needed. See [Settings Window](docs/features.md#settings-window) for details.
+Use the **Telemetry adapters** panel in the dashboard, or open **Settings > AI Tools**, to install the bundled Claude Code and Codex CLI adapters. Restart existing Claude Code terminals after installation. For Codex, start a new session, run `/hooks`, and trust the VibeMon Local hooks.
+
+For an Antigravity workspace:
+
+```bash
+npm run install:antigravity-hooks -- /absolute/path/to/workspace
+```
+
+The VS Code/Cursor companion source is under
+`integrations/vscode-vibemon`. Its README explains local development install.
+
+### Add another runtime without rebuilding
+
+Create `~/.vibemon/runtime-signatures.json`:
+
+```json
+{
+  "signatures": [
+    {
+      "runtime": "My Agent",
+      "surface": "CLI",
+      "telemetry": "event-api",
+      "executables": ["my-agent"],
+      "pathContains": ["/.my-agent/"]
+    }
+  ]
+}
+```
+
+VibeMon reloads the file during process sampling. Custom definitions are shown
+in the Runtime coverage panel and are validated before use.
 
 ## Preview
 

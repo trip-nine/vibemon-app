@@ -1,268 +1,143 @@
-/**
- * Input validation functions for the Vibe Monitor
- */
-
+/** Input validation for live status and agent observability fields. */
 const { VALID_STATES } = require('../shared/config.cjs');
 
-// Validation limits. project/tool/model match the cloud API's
-// STATUS_FIELD_LIMITS (vibemon src/lib/validation.ts): anything the cloud
-// accepts is re-broadcast over WebSocket into this app, and a stricter limit
-// here would silently drop the whole update.
-const PROJECT_MAX_LENGTH = 128;
-const TOOL_MAX_LENGTH = 64;
-const MODEL_MAX_LENGTH = 64;
-const CHARACTER_MAX_LENGTH = 64;
-const TERMINAL_ID_MAX_LENGTH = 100;
-// Memory is now a number (0-100), not a string
-// iTerm2: iterm2:w0t0p0:UUID format, Ghostty: ghostty:PID format
+const LIMITS = {
+  project: 128,
+  tool: 64,
+  model: 64,
+  character: 64,
+  terminalId: 100,
+  identifier: 256,
+  path: 2048,
+  description: 4096,
+  files: 200
+};
 const ITERM2_SESSION_PATTERN = /^iterm2:w\d+t\d+p\d+:[0-9A-Fa-f-]{36}$/;
 const GHOSTTY_PID_PATTERN = /^ghostty:\d{1,10}$/;
 
-/**
- * Validate state value
- * @param {string} state
- * @returns {{valid: boolean, error: string|null}}
- */
+function ok() { return { valid: true, error: null }; }
+function fail(error) { return { valid: false, error }; }
+
 function validateState(state) {
-  // Required, matching the cloud API (POST /api/status rejects a missing
-  // state): a state-less update has nothing to display, would take focus
-  // while rendering as idle, and never gets a state timeout — so it would
-  // linger in the registry forever.
-  if (state === undefined) {
-    return { valid: false, error: 'state is required' };
-  }
-  if (!VALID_STATES.includes(state)) {
-    return { valid: false, error: `Invalid state: ${state}. Valid states: ${VALID_STATES.join(', ')}` };
-  }
-  return { valid: true, error: null };
+  if (state === undefined) return fail('state is required');
+  return VALID_STATES.includes(state)
+    ? ok()
+    : fail(`Invalid state: ${state}. Valid states: ${VALID_STATES.join(', ')}`);
 }
 
-/**
- * Validate character value. Names outside CHARACTER_NAMES are accepted here
- * and normalized to DEFAULT_CHARACTER downstream (state-manager), so bridges
- * still sending a character that has been removed from the registry degrade
- * gracefully instead of having their whole status update rejected.
- * @param {string} character
- * @returns {{valid: boolean, error: string|null}}
- */
-function validateCharacter(character) {
-  if (character === undefined) {
-    return { valid: true, error: null };
-  }
-  if (typeof character !== 'string') {
-    return { valid: false, error: 'Character must be a string' };
-  }
-  if (character.length > CHARACTER_MAX_LENGTH) {
-    return { valid: false, error: `Character name exceeds ${CHARACTER_MAX_LENGTH} characters` };
-  }
-  return { valid: true, error: null };
+function validateOptionalString(value, label, max) {
+  if (value === undefined || value === null || value === '') return ok();
+  if (typeof value !== 'string') return fail(`${label} must be a string`);
+  if (value.length > max) return fail(`${label} exceeds ${max} characters`);
+  return ok();
 }
 
-/**
- * Validate project name
- * @param {string} project
- * @returns {{valid: boolean, error: string|null}}
- */
-function validateProject(project) {
-  if (project === undefined) {
-    return { valid: true, error: null };
-  }
-  if (typeof project !== 'string') {
-    return { valid: false, error: 'Project must be a string' };
-  }
-  if (project.length > PROJECT_MAX_LENGTH) {
-    return { valid: false, error: `Project name exceeds ${PROJECT_MAX_LENGTH} characters` };
-  }
-  return { valid: true, error: null };
-}
+function validateCharacter(value) { return validateOptionalString(value, 'Character name', LIMITS.character); }
+function validateProject(value) { return validateOptionalString(value, 'Project name', LIMITS.project); }
+function validateTool(value) { return validateOptionalString(value, 'Tool name', LIMITS.tool); }
+function validateModel(value) { return validateOptionalString(value, 'Model name', LIMITS.model); }
+function validateUsageLabel(value) { return validateOptionalString(value, 'usageWeekModelLabel', LIMITS.model); }
 
-/**
- * Validate memory value (number 0-100)
- * @param {number} memory
- * @returns {{valid: boolean, error: string|null}}
- */
 function validateMemory(memory) {
-  if (memory === undefined || memory === null || memory === '') {
-    return { valid: true, error: null };
-  }
-  if (typeof memory !== 'number') {
-    return { valid: false, error: 'Memory must be a number' };
+  if (memory === undefined || memory === null || memory === '') return ok();
+  if (typeof memory !== 'number' || !Number.isFinite(memory)) {
+    return fail('Memory must be a number');
   }
   if (!Number.isInteger(memory) || memory < 0 || memory > 100) {
-    return { valid: false, error: 'Memory must be an integer between 0 and 100' };
+    return fail('Memory must be an integer between 0 and 100');
   }
-  return { valid: true, error: null };
+  return ok();
 }
 
-/**
- * Validate a plan-usage percentage (number 0-100)
- * @param {number} value
- * @param {string} label - Field name for error messages
- * @returns {{valid: boolean, error: string|null}}
- */
 function validateUsage(value, label) {
-  if (value === undefined || value === null || value === '') {
-    return { valid: true, error: null };
-  }
-  if (typeof value !== 'number') {
-    return { valid: false, error: `${label} must be a number` };
-  }
+  if (value === undefined || value === null || value === '') return ok();
   if (!Number.isInteger(value) || value < 0 || value > 100) {
-    return { valid: false, error: `${label} must be an integer between 0 and 100` };
+    return fail(`${label} must be an integer between 0 and 100`);
   }
-  return { valid: true, error: null };
+  return ok();
 }
 
-/**
- * Validate minutes remaining until a usage quota resets (non-negative integer)
- * @param {number} value
- * @param {string} label - Field name for error messages
- * @returns {{valid: boolean, error: string|null}}
- */
 function validateResetMinutes(value, label) {
-  if (value === undefined || value === null || value === '') {
-    return { valid: true, error: null };
-  }
-  if (typeof value !== 'number') {
-    return { valid: false, error: `${label} must be a number` };
-  }
-  if (!Number.isInteger(value) || value < 0) {
-    return { valid: false, error: `${label} must be a non-negative integer` };
-  }
-  return { valid: true, error: null };
+  if (value === undefined || value === null || value === '') return ok();
+  if (!Number.isInteger(value) || value < 0) return fail(`${label} must be a non-negative integer`);
+  return ok();
 }
 
-/**
- * Validate tool name
- * @param {string} tool
- * @returns {{valid: boolean, error: string|null}}
- */
-function validateTool(tool) {
-  if (tool === undefined || tool === '') {
-    return { valid: true, error: null };
+function validateNonNegativeNumber(value, label, integer = false) {
+  if (value === undefined || value === null || value === '') return ok();
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    return fail(`${label} must be a non-negative number`);
   }
-  if (typeof tool !== 'string') {
-    return { valid: false, error: 'Tool must be a string' };
-  }
-  if (tool.length > TOOL_MAX_LENGTH) {
-    return { valid: false, error: `Tool name exceeds ${TOOL_MAX_LENGTH} characters` };
-  }
-  return { valid: true, error: null };
+  if (integer && !Number.isInteger(value)) return fail(`${label} must be an integer`);
+  return ok();
 }
 
-/**
- * Validate model name
- * @param {string} model
- * @returns {{valid: boolean, error: string|null}}
- */
-function validateModel(model) {
-  if (model === undefined || model === '') {
-    return { valid: true, error: null };
-  }
-  if (typeof model !== 'string') {
-    return { valid: false, error: 'Model must be a string' };
-  }
-  if (model.length > MODEL_MAX_LENGTH) {
-    return { valid: false, error: `Model name exceeds ${MODEL_MAX_LENGTH} characters` };
-  }
-  return { valid: true, error: null };
-}
-
-/**
- * Validate a usage bucket label (e.g. "Fable" on usageWeekModelLabel)
- * @param {string} label
- * @returns {{valid: boolean, error: string|null}}
- */
-function validateUsageLabel(label) {
-  if (label === undefined || label === '') {
-    return { valid: true, error: null };
-  }
-  if (typeof label !== 'string') {
-    return { valid: false, error: 'usageWeekModelLabel must be a string' };
-  }
-  if (label.length > MODEL_MAX_LENGTH) {
-    return { valid: false, error: `usageWeekModelLabel exceeds ${MODEL_MAX_LENGTH} characters` };
-  }
-  return { valid: true, error: null };
-}
-
-/**
- * Validate terminal ID (iTerm2 session or Ghostty PID)
- * @param {string} terminalId
- * @returns {{valid: boolean, error: string|null}}
- */
 function validateTerminalId(terminalId) {
-  if (terminalId === undefined || terminalId === null || terminalId === '') {
-    return { valid: true, error: null };
-  }
-  if (typeof terminalId !== 'string') {
-    return { valid: false, error: 'terminalId must be a string' };
-  }
-  if (terminalId.length > TERMINAL_ID_MAX_LENGTH) {
-    return { valid: false, error: `terminalId exceeds ${TERMINAL_ID_MAX_LENGTH} characters` };
-  }
-  // Accept iTerm2 session format or Ghostty PID format
-  if (!ITERM2_SESSION_PATTERN.test(terminalId) && !GHOSTTY_PID_PATTERN.test(terminalId)) {
-    return { valid: false, error: 'terminalId must be a valid iTerm2 session ID or Ghostty PID' };
-  }
-  return { valid: true, error: null };
+  const base = validateOptionalString(terminalId, 'terminalId', LIMITS.terminalId);
+  if (!base.valid || terminalId === undefined || terminalId === null || terminalId === '') return base;
+  return ITERM2_SESSION_PATTERN.test(terminalId) || GHOSTTY_PID_PATTERN.test(terminalId)
+    ? ok()
+    : fail('terminalId must be a valid iTerm2 session ID or Ghostty PID');
 }
 
-/**
- * Validate status payload
- * @param {object} data
- * @returns {{valid: boolean, error: string|null}}
- */
-function validateStatusPayload(data) {
-  if (!data || typeof data !== 'object' || Array.isArray(data)) {
-    return { valid: false, error: 'Payload must be a JSON object' };
+function validateFiles(files) {
+  if (files === undefined || files === null) return ok();
+  if (!Array.isArray(files)) return fail('files must be an array');
+  if (files.length > LIMITS.files) return fail(`files exceeds ${LIMITS.files} entries`);
+  for (const file of files) {
+    const result = validateOptionalString(file, 'file path', LIMITS.path);
+    if (!result.valid) return result;
   }
+  return ok();
+}
 
-  const stateResult = validateState(data.state);
-  if (!stateResult.valid) return stateResult;
+function validateTimestamp(value) {
+  if (value === undefined || value === null || value === '') return ok();
+  if (typeof value === 'number' && Number.isFinite(value)) return ok();
+  if (typeof value === 'string' && !Number.isNaN(Date.parse(value))) return ok();
+  return fail('timestamp must be an ISO date string or epoch milliseconds');
+}
 
-  const characterResult = validateCharacter(data.character);
-  if (!characterResult.valid) return characterResult;
+function validateStatusPayload(data) {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return fail('Payload must be a JSON object');
 
-  const projectResult = validateProject(data.project);
-  if (!projectResult.valid) return projectResult;
+  const checks = [
+    validateState(data.state),
+    validateCharacter(data.character),
+    validateProject(data.project),
+    validateMemory(data.memory),
+    validateUsage(data.usage5h, 'usage5h'),
+    validateUsage(data.usageWeek, 'usageWeek'),
+    validateResetMinutes(data.usage5hResetsIn, 'usage5hResetsIn'),
+    validateResetMinutes(data.usageWeekResetsIn, 'usageWeekResetsIn'),
+    validateUsage(data.usageWeekModel, 'usageWeekModel'),
+    validateResetMinutes(data.usageWeekModelResetsIn, 'usageWeekModelResetsIn'),
+    validateUsageLabel(data.usageWeekModelLabel),
+    validateTool(data.tool),
+    validateModel(data.model),
+    validateTerminalId(data.terminalId),
+    validateTimestamp(data.timestamp),
+    validateFiles(data.files)
+  ];
 
-  const memoryResult = validateMemory(data.memory);
-  if (!memoryResult.valid) return memoryResult;
+  const stringFields = [
+    ['eventType', LIMITS.identifier], ['sessionId', LIMITS.identifier],
+    ['agentId', LIMITS.identifier], ['parentAgentId', LIMITS.identifier],
+    ['agentName', LIMITS.identifier], ['agentType', LIMITS.identifier],
+    ['teamId', LIMITS.identifier], ['taskId', LIMITS.identifier],
+    ['toolUseId', LIMITS.identifier], ['modelSource', LIMITS.identifier],
+    ['repo', LIMITS.path], ['branch', LIMITS.project], ['cwd', LIMITS.path],
+    ['transcriptPath', LIMITS.path], ['description', LIMITS.description], ['error', LIMITS.description]
+  ];
+  for (const [field, max] of stringFields) checks.push(validateOptionalString(data[field], field, max));
 
-  const usage5hResult = validateUsage(data.usage5h, 'usage5h');
-  if (!usage5hResult.valid) return usage5hResult;
+  for (const field of ['inputTokens', 'outputTokens', 'cacheReadTokens', 'cacheWriteTokens', 'reasoningTokens', 'totalTokens', 'durationMs']) {
+    checks.push(validateNonNegativeNumber(data[field], field, true));
+  }
+  checks.push(validateNonNegativeNumber(data.costUsd, 'costUsd'));
+  if (data.success !== undefined && typeof data.success !== 'boolean') checks.push(fail('success must be a boolean'));
 
-  const usageWeekResult = validateUsage(data.usageWeek, 'usageWeek');
-  if (!usageWeekResult.valid) return usageWeekResult;
-
-  const usage5hResetsInResult = validateResetMinutes(data.usage5hResetsIn, 'usage5hResetsIn');
-  if (!usage5hResetsInResult.valid) return usage5hResetsInResult;
-
-  const usageWeekResetsInResult = validateResetMinutes(data.usageWeekResetsIn, 'usageWeekResetsIn');
-  if (!usageWeekResetsInResult.valid) return usageWeekResetsInResult;
-
-  const usageWeekModelResult = validateUsage(data.usageWeekModel, 'usageWeekModel');
-  if (!usageWeekModelResult.valid) return usageWeekModelResult;
-
-  const usageWeekModelResetsInResult = validateResetMinutes(
-    data.usageWeekModelResetsIn, 'usageWeekModelResetsIn'
-  );
-  if (!usageWeekModelResetsInResult.valid) return usageWeekModelResetsInResult;
-
-  const usageWeekModelLabelResult = validateUsageLabel(data.usageWeekModelLabel);
-  if (!usageWeekModelLabelResult.valid) return usageWeekModelLabelResult;
-
-  const toolResult = validateTool(data.tool);
-  if (!toolResult.valid) return toolResult;
-
-  const modelResult = validateModel(data.model);
-  if (!modelResult.valid) return modelResult;
-
-  const terminalIdResult = validateTerminalId(data.terminalId);
-  if (!terminalIdResult.valid) return terminalIdResult;
-
-  return { valid: true, error: null };
+  return checks.find(result => !result.valid) || ok();
 }
 
 module.exports = {
@@ -276,5 +151,7 @@ module.exports = {
   validateTool,
   validateModel,
   validateTerminalId,
-  validateStatusPayload
+  validateStatusPayload,
+  validateFiles,
+  validateTimestamp
 };

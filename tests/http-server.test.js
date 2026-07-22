@@ -201,6 +201,64 @@ describe('HttpServer request boundaries', () => {
     expect(debug.statusCode).toBe(200);
   });
 
+  test('reports local runtime presence without command arguments', async () => {
+    const { server } = createServer();
+    server.runtimeMonitor = { current: jest.fn(() => ({
+      timestamp: '2026-01-01T00:00:00.000Z',
+      processes: [{ pid: 12, parentPid: 1, terminal: 'ttys003', runtime: 'Claude Code', surface: 'CLI', telemetry: 'hooks' }],
+      lmStudio: { available: false, models: [] }
+    })) };
+    const res = response();
+
+    await server.handleRequest(request('GET', '/runtimes'), res);
+
+    expect(JSON.parse(res.body).processes).toEqual([
+      { pid: 12, parentPid: 1, terminal: 'ttys003', runtime: 'Claude Code', surface: 'CLI', telemetry: 'hooks' }
+    ]);
+  });
+
+  test('returns persisted runtime resource summaries', async () => {
+    const { server } = createServer();
+    server.runtimeMonitor = { summary: jest.fn(() => ({ snapshots: 3, runtimes: [] })) };
+    const res = response();
+    await server.handleRequest(request('GET', '/runtimes/summary?since=2026-01-01'), res);
+    expect(JSON.parse(res.body)).toEqual({ snapshots: 3, runtimes: [] });
+    expect(server.runtimeMonitor.summary).toHaveBeenCalledWith({ since: '2026-01-01', limit: undefined });
+  });
+
+  test('returns the installed and supported runtime catalog', async () => {
+    const { server } = createServer();
+    server.runtimeMonitor = {
+      scanner: { catalog: jest.fn(() => ({ runtimes: [{ runtime: 'Hermes Agent', installed: true }], customSignatureFile: '/local/signatures.json' })) }
+    };
+    const res = response();
+    await server.handleRequest(request('GET', '/runtimes/catalog'), res);
+    expect(JSON.parse(res.body)).toEqual({
+      runtimes: [{ runtime: 'Hermes Agent', installed: true }], customSignatureFile: '/local/signatures.json'
+    });
+  });
+
+  test('installs supported local integrations from the dashboard', async () => {
+    const { server } = createServer();
+    const hookInstaller = {
+      installByFlag: jest.fn(async () => [{ result: { ok: true, changed: true, requiresTrust: true, trustInstructions: 'Trust it' } }]),
+      refreshStatuses: jest.fn(() => [{
+        name: 'Codex CLI', flag: '--codex', present: true, hasHook: true,
+        installAvailable: true, requiresTrust: true
+      }])
+    };
+    server.setHookInstaller(hookInstaller);
+    const res = response();
+
+    await server.handleRequest(request('POST', '/integrations/install', {
+      headers: { 'content-type': 'application/json' }, body: { flag: '--codex' }
+    }), res);
+
+    expect(res.statusCode).toBe(200);
+    expect(hookInstaller.installByFlag).toHaveBeenCalledWith('--codex');
+    expect(JSON.parse(res.body).result).toMatchObject({ ok: true, requiresTrust: true });
+  });
+
   test('accepts preflight requests', async () => {
     const { server } = createServer();
     const res = response();

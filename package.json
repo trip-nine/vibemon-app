@@ -1,7 +1,7 @@
 {
   "name": "vibemon",
-  "version": "2.5.3",
-  "description": "AI assistant status monitor",
+  "version": "2.5.3-local.5",
+  "description": "Local-only AI agent operations recorder and status monitor",
   "main": "src/main.js",
   "bin": {
     "vibemon": "bin/cli.js"
@@ -14,6 +14,9 @@
     "build:win": "electron-builder --win --publish never",
     "build:linux": "electron-builder --linux --publish never",
     "build:all": "electron-builder --mac --win --linux --publish never",
+    "install:local-hooks": "node scripts/install-local-hooks.cjs",
+    "install:codex-hooks": "node scripts/install-local-hooks.cjs --codex",
+    "install:antigravity-hooks": "node scripts/install-local-hooks.cjs --antigravity",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "test": "jest",
@@ -21,35 +24,35 @@
     "test:coverage": "jest --coverage",
     "check:registry": "node scripts/check-registry.mjs"
   },
-  "author": "nalbam",
+  "author": "nalbam; local observability fork by trip-nine",
   "license": "MIT",
   "keywords": [
     "vibemon",
     "claude-code",
-    "kiro",
-    "ai-assistant",
+    "codex",
+    "ai-agent-observability",
+    "local-first",
     "status-monitor",
-    "electron",
-    "pixel-art"
+    "electron"
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/opspresso/vibemon-app.git"
+    "url": "git+https://github.com/trip-nine/vibemon-app.git"
   },
-  "homepage": "https://opspresso.github.io/vibemon-app/",
+  "homepage": "https://github.com/trip-nine/vibemon-app",
   "bugs": {
-    "url": "https://github.com/opspresso/vibemon-app/issues"
+    "url": "https://github.com/trip-nine/vibemon-app/issues"
   },
   "dependencies": {
     "canvas": "^3.2.1",
     "d3-force": "^3.0.0",
     "dotenv": "^17.2.3",
-    "electron": "^43.1.0",
     "electron-store": "^8.2.0",
     "electron-updater": "^6.8.9",
     "ws": "^8.19.0"
   },
   "devDependencies": {
+    "electron": "^43.1.0",
     "electron-builder": "^26.8.1",
     "eslint": "^9.0.0",
     "jest": "^29.7.0",
@@ -59,11 +62,13 @@
     "README.md",
     "bin/",
     "src/",
-    "assets/"
+    "assets/",
+    "scripts/vibemon_claude_hook.py",
+    "scripts/install-local-hooks.cjs"
   ],
   "build": {
-    "appId": "com.opspresso.vibemon",
-    "productName": "VibeMon",
+    "appId": "com.tripnine.vibemon.local",
+    "productName": "VibeMon Local",
     "files": [
       "**/*",
       "!docs/**",
@@ -73,10 +78,7 @@
     "mac": {
       "category": "public.app-category.developer-tools",
       "icon": "assets/icon.icns",
-      "target": [
-        "dmg",
-        "zip"
-      ],
+      "target": ["dmg", "zip"],
       "entitlements": "entitlements.mac.plist",
       "entitlementsInherit": "entitlements.mac.plist",
       "hardenedRuntime": true,
@@ -86,18 +88,8 @@
       "icon": "assets/icon.ico",
       "artifactName": "${productName}-${version}-${arch}.${ext}",
       "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        },
-        {
-          "target": "portable",
-          "arch": [
-            "x64"
-          ]
-        }
+        { "target": "nsis", "arch": ["x64"] },
+        { "target": "portable", "arch": ["x64"] }
       ]
     },
     "nsis": {
@@ -110,18 +102,8 @@
     },
     "linux": {
       "icon": "assets/icon.png",
-      "target": [
-        "AppImage",
-        "deb"
-      ],
+      "target": ["AppImage", "deb"],
       "category": "Development"
-    },
-    "publish": [
-      {
-        "provider": "github",
-        "owner": "opspresso",
-        "repo": "vibemon-app"
-      }
-    ]
+    }
   }
 }

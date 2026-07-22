@@ -1,5 +1,5 @@
 /**
- * HTTP server for VibeMon
+ * Loopback-only HTTP API and historical analytics server.
  */
 
 const http = require('http');
@@ -9,8 +9,13 @@ const path = require('path');
 const { HTTP_PORT, MAX_PAYLOAD_SIZE, RATE_LIMIT, RATE_WINDOW_MS, CHARACTER_NAMES } = require('../shared/config.cjs');
 const { setCorsHeaders, isAllowedOrigin, hasJsonContentType, sendJson, sendError, parseJsonBody } = require('./http-utils.cjs');
 const { validateStatusPayload } = require('./validators.cjs');
+const { EventStore } = require('./event-store.cjs');
+const { RuntimeScanner } = require('./runtime-scanner.cjs');
+const { RuntimeMonitor } = require('./runtime-monitor.cjs');
+const { installLocalOnlyGuard } = require('./local-only-guard.cjs');
 
-// Rate limiting: cleanup when the per-IP map exceeds this size
+if (!process.env.JEST_WORKER_ID) installLocalOnlyGuard();
+
 const RATE_CLEANUP_THRESHOLD = 100;
 
 class HttpServer {
@@ -19,102 +24,67 @@ class HttpServer {
     this.stateManager = stateManager;
     this.windowManager = windowManager;
     this.app = app;
-    this.onStateUpdate = null;  // Callback for menu/icon updates
-    this.onProjectSwitched = null;  // Callback: (oldProjectId) => void, window retargeted to another project
-    this.onError = null;        // Callback for server errors
-
-    // Rate limiting state
-    this.requestCounts = new Map();  // IP -> { count, resetTime }
+    this.eventStore = new EventStore(app);
+    this.runtimeScanner = new RuntimeScanner();
+    this.runtimeMonitor = new RuntimeMonitor(app, { scanner: this.runtimeScanner });
+    this.hookInstaller = null;
+    this.onStateUpdate = null;
+    this.onProjectSwitched = null;
+    this.onError = null;
+    this.requestCounts = new Map();
   }
 
-  /**
-   * Cleanup expired rate limit entries to prevent memory leak
-   */
+  setHookInstaller(hookInstaller) {
+    this.hookInstaller = hookInstaller;
+  }
+
   cleanupExpiredRateLimits() {
     const now = Date.now();
     for (const [ip, record] of this.requestCounts) {
-      if (now > record.resetTime) {
-        this.requestCounts.delete(ip);
-      }
+      if (now > record.resetTime) this.requestCounts.delete(ip);
     }
   }
 
-  /**
-   * Check rate limit for an IP address
-   * @param {string} ip
-   * @returns {boolean} true if allowed, false if rate limited
-   */
   checkRateLimit(ip) {
-    // Cleanup expired entries when map gets large
-    if (this.requestCounts.size > RATE_CLEANUP_THRESHOLD) {
-      this.cleanupExpiredRateLimits();
-    }
-
+    if (this.requestCounts.size > RATE_CLEANUP_THRESHOLD) this.cleanupExpiredRateLimits();
     const now = Date.now();
     const record = this.requestCounts.get(ip);
-
     if (!record || now > record.resetTime) {
-      // New window or expired - reset counter
       this.requestCounts.set(ip, { count: 1, resetTime: now + RATE_WINDOW_MS });
       return true;
     }
-
-    if (record.count >= RATE_LIMIT) {
-      return false;  // Rate limited
-    }
-
-    record.count++;
+    if (record.count >= RATE_LIMIT) return false;
+    record.count += 1;
     return true;
   }
 
   start() {
+    this.runtimeMonitor.start();
     this.server = http.createServer((req, res) => {
       this.handleRequest(req, res).catch((err) => {
         console.error('Unhandled request error:', err.message);
-        if (!res.headersSent) {
-          sendError(res, 500, 'Internal server error');
-        }
+        if (!res.headersSent) sendError(res, 500, 'Internal server error');
       });
     });
-
     this.server.on('error', (err) => {
       console.error('HTTP Server error:', err.message);
-      if (err.code === 'EADDRINUSE') {
-        console.error(`Port ${HTTP_PORT} is already in use`);
-      }
-      // Notify error callback if registered
-      if (this.onError) {
-        this.onError(err);
-      }
+      if (this.onError) this.onError(err);
     });
-
     this.server.listen(HTTP_PORT, '127.0.0.1', () => {
-      console.log(`VibeMon HTTP server running on http://127.0.0.1:${HTTP_PORT}`);
+      console.log(`VibeMon Local running on http://127.0.0.1:${HTTP_PORT}`);
     });
-
     return this.server;
   }
 
   stop() {
+    this.requestCounts.clear();
+    this.eventStore.close();
+    this.runtimeMonitor.stop();
     return new Promise((resolve) => {
-      // Clear rate limiting state
-      this.requestCounts.clear();
-
-      if (!this.server) {
-        resolve();
-        return;
-      }
-
-      const forceCloseTimeout = setTimeout(() => {
-        console.warn('HTTP server close timeout, forcing shutdown');
-        resolve();
-      }, 5000);
-
-      this.server.close((err) => {
-        clearTimeout(forceCloseTimeout);
-        if (err && err.code !== 'ERR_SERVER_NOT_RUNNING') {
-          console.error('HTTP server close error:', err.message);
-        }
+      if (!this.server) return resolve();
+      const timeout = setTimeout(resolve, 5000);
+      this.server.close(() => {
+        clearTimeout(timeout);
         this.server = null;
         resolve();
       });
@@ -122,247 +92,285 @@ class HttpServer {
   }
 
   async handleRequest(req, res) {
-    if (!isAllowedOrigin(req)) {
-      sendError(res, 403, 'Origin not allowed');
-      return;
-    }
+    if (!isAllowedOrigin(req)) return sendError(res, 403, 'Origin not allowed');
     setCorsHeaders(res, req);
-
     if (req.method === 'OPTIONS') {
       res.writeHead(200);
-      res.end();
-      return;
+      return res.end();
     }
 
-    // Rate limiting check
     const ip = req.socket.remoteAddress || '127.0.0.1';
-    if (!this.checkRateLimit(ip)) {
-      sendError(res, 429, 'Too many requests');
-      return;
-    }
+    if (!this.checkRateLimit(ip)) return sendError(res, 429, 'Too many requests');
 
-    // Match on the pathname only, so a query string (e.g. GET /status?x=1)
-    // doesn't fall through to 404. Fall back to the raw url if parsing fails.
-    let pathname = req.url;
-    try {
-      pathname = new URL(req.url, 'http://127.0.0.1').pathname;
-    } catch {
-      // keep raw req.url
-    }
-    const route = `${req.method} ${pathname}`;
+    const parsedUrl = new URL(req.url, 'http://127.0.0.1');
+    const route = `${req.method} ${parsedUrl.pathname}`;
 
     switch (route) {
-      case 'GET /':
-        await this.handleGetDashboard(res);
-        break;
-      case 'GET /dashboard-data':
-        this.handleGetDashboardData(res);
-        break;
-      case 'POST /status':
-        await this.handlePostStatus(req, res);
-        break;
-      case 'GET /status':
-        this.handleGetStatus(res);
-        break;
-      case 'POST /close':
-        await this.handlePostClose(req, res);
-        break;
-      case 'GET /health':
-        this.handleGetHealth(res);
-        break;
-      case 'POST /show':
-        await this.handlePostShow(req, res);
-        break;
-      case 'GET /debug':
-        this.handleGetDebug(res);
-        break;
-      case 'POST /quit':
-        this.handlePostQuit(res);
-        break;
-      case 'GET /character-lock':
-        this.handleGetCharacterLock(res);
-        break;
-      case 'POST /character-lock':
-        await this.handlePostCharacterLock(req, res);
-        break;
+      case 'GET /': return this.handleGetDashboard(res);
+      case 'GET /dashboard-data': return this.handleGetDashboardData(res);
+      case 'POST /status': return this.handlePostStatus(req, res);
+      case 'GET /status': return this.handleGetStatus(res);
+      case 'POST /events': return this.handlePostEvents(req, res);
+      case 'GET /history': return this.handleGetHistory(parsedUrl, res);
+      case 'GET /history/summary': return this.handleGetHistorySummary(parsedUrl, res);
+      case 'GET /history/agents': return this.handleGetAgentTree(parsedUrl, res);
+      case 'GET /history/storage': return sendJson(res, 200, this.eventStore.getStorageInfo());
+      case 'GET /runtimes': return this.handleGetRuntimes(res);
+      case 'GET /runtimes/catalog': return this.handleGetRuntimeCatalog(res);
+      case 'GET /runtimes/history': return this.handleGetRuntimeHistory(parsedUrl, res);
+      case 'GET /runtimes/summary': return this.handleGetRuntimeSummary(parsedUrl, res);
+      case 'GET /integrations': return this.handleGetIntegrations(res);
+      case 'POST /integrations/install': return this.handleInstallIntegration(req, res);
+      case 'POST /close': return this.handlePostClose(req, res);
+      case 'GET /health': return this.handleGetHealth(res);
+      case 'POST /show': return this.handlePostShow(req, res);
+      case 'GET /debug': return this.handleGetDebug(res);
+      case 'POST /quit': return this.handlePostQuit(res);
+      case 'GET /character-lock': return this.handleGetCharacterLock(res);
+      case 'POST /character-lock': return this.handlePostCharacterLock(req, res);
       default:
         res.writeHead(404);
-        res.end('Not Found');
+        return res.end('Not Found');
     }
   }
 
-  async handlePostStatus(req, res) {
+  handleGetRuntimes(res) {
+    return sendJson(res, 200, this.runtimeMonitor.current());
+  }
+
+  handleGetRuntimeCatalog(res) {
+    return sendJson(res, 200, this.runtimeMonitor.scanner.catalog());
+  }
+
+  runtimeFilters(url) {
+    return {
+      since: url.searchParams.get('since') || undefined,
+      limit: url.searchParams.get('limit') || undefined
+    };
+  }
+
+  handleGetRuntimeHistory(url, res) {
+    const filters = this.runtimeFilters(url);
+    return sendJson(res, 200, { snapshots: this.runtimeMonitor.query(filters), filters });
+  }
+
+  handleGetRuntimeSummary(url, res) {
+    return sendJson(res, 200, this.runtimeMonitor.summary(this.runtimeFilters(url)));
+  }
+
+  integrationView() {
+    const snapshot = this.runtimeMonitor.current();
+    const running = new Set((snapshot.processes || []).map(process => process.runtime));
+    const installed = this.hookInstaller ? this.hookInstaller.refreshStatuses().map(tool => ({
+      name: tool.name,
+      flag: tool.flag,
+      present: Boolean(tool.present),
+      hasHook: Boolean(tool.hasHook),
+      installAvailable: Boolean(tool.installAvailable),
+      requiresTrust: Boolean(tool.requiresTrust),
+      localOnly: true,
+      state: tool.hasHook ? 'installed' : 'pending'
+    })) : [];
+    return [
+      ...installed,
+      {
+        name: 'LM Studio local models', flag: '--lm-studio',
+        present: running.has('LM Studio'), hasHook: Boolean(snapshot.lmStudio && snapshot.lmStudio.available),
+        installAvailable: false, localOnly: true,
+        state: snapshot.lmStudio && snapshot.lmStudio.available ? 'connected' : 'observed',
+        detail: snapshot.lmStudio && snapshot.lmStudio.available
+          ? 'Local model inventory connected automatically'
+          : 'Process resources are observed; start LM Studio to connect its local CLI'
+      },
+      {
+        name: 'VS Code / Cursor companion', flag: '--editor-companion',
+        present: running.has('VS Code') || running.has('Cursor'), hasHook: false,
+        installAvailable: false, localOnly: true, state: 'available',
+        detail: 'Optional companion source is bundled under integrations/vscode-vibemon'
+      },
+      {
+        name: 'Antigravity workspace hook', flag: '--antigravity',
+        present: running.has('Antigravity'), hasHook: false,
+        installAvailable: false, localOnly: true, state: 'available',
+        detail: 'Install per project: npm run install:antigravity-hooks -- /workspace/path'
+      },
+      {
+        name: 'Claude Desktop', flag: '--claude-desktop',
+        present: running.has('Claude'), hasHook: false,
+        installAvailable: false, localOnly: true, state: 'observed',
+        detail: 'Process/resource presence only; no supported passive chat lifecycle interface'
+      }
+    ];
+  }
+
+  handleGetIntegrations(res) {
+    return sendJson(res, 200, { integrations: this.integrationView() });
+  }
+
+  async handleInstallIntegration(req, res) {
+    const data = await this.readJson(req, res);
+    if (data === null) return;
+    const flag = data && typeof data.flag === 'string' ? data.flag : '';
+    if (!this.hookInstaller || !['--claude', '--codex'].includes(flag)) {
+      return sendError(res, 400, 'A supported integration flag is required');
+    }
+    const results = await this.hookInstaller.installByFlag(flag);
+    const result = results[0] ? results[0].result : { ok: false, reason: 'not-found' };
+    return sendJson(res, result.ok ? 200 : 500, {
+      result: {
+        ok: Boolean(result.ok),
+        changed: Boolean(result.changed),
+        requiresTrust: Boolean(result.requiresTrust),
+        trustInstructions: result.trustInstructions || null,
+        reason: result.reason || null
+      },
+      integrations: this.integrationView()
+    });
+  }
+
+  async readJson(req, res) {
     if (!hasJsonContentType(req)) {
       sendError(res, 415, 'Content-Type must be application/json');
-      return;
+      return null;
     }
-    const { data, error, statusCode } = await parseJsonBody(req, MAX_PAYLOAD_SIZE);
-
-    if (error) {
-      sendError(res, statusCode, error);
-      return;
+    const parsed = await parseJsonBody(req, MAX_PAYLOAD_SIZE);
+    if (parsed.error) {
+      sendError(res, parsed.statusCode, parsed.error);
+      return null;
     }
+    return parsed.data;
+  }
 
-    // Validate payload
+  async handlePostEvents(req, res) {
+    const data = await this.readJson(req, res);
+    if (data === null) return;
+    if ((!Array.isArray(data) && (!data || typeof data !== 'object')) ||
+        (Array.isArray(data) && data.some(item => !item || typeof item !== 'object' || Array.isArray(item)))) {
+      return sendError(res, 400, 'Event payload must be an object or array of objects');
+    }
+    const recorded = this.eventStore.recordMany(data, { source: 'events-api' });
+    return sendJson(res, 201, { success: true, recorded: recorded.length, events: recorded });
+  }
+
+  async handlePostStatus(req, res) {
+    const data = await this.readJson(req, res);
+    if (data === null) return;
     const validation = validateStatusPayload(data);
-    if (!validation.valid) {
-      sendError(res, 400, validation.error);
-      return;
-    }
+    if (!validation.valid) return sendError(res, 400, validation.error);
 
-    // Validate and normalize state data via stateManager
     const stateValidation = this.stateManager.validateStateData(data);
-    if (!stateValidation.valid) {
-      sendError(res, 400, stateValidation.error || 'Invalid state data');
-      return;
-    }
-    const stateData = stateValidation.data;  // Extract normalized data
+    if (!stateValidation.valid) return sendError(res, 400, stateValidation.error || 'Invalid state data');
+    const stateData = stateValidation.data;
+    const recorded = this.eventStore.record(stateData, { source: 'status-api' });
 
-    // A status without a project name has nothing meaningful to display —
-    // accept it but never route it to the window.
     if (!stateData.project) {
-      sendJson(res, 200, {
+      return sendJson(res, 200, {
         success: true,
+        eventId: recorded.id,
         project: null,
         state: stateData.state,
         focusedProject: this.windowManager.getFocusedProjectId(),
         skipped: true
       });
-      return;
     }
+
     const projectId = stateData.project;
-
     const routeResult = this.windowManager.routeStatusUpdate(projectId, stateData);
-
-    // The window was retargeted from another project
-    if (routeResult.switchedProject) {
-      if (this.onProjectSwitched) {
-        this.onProjectSwitched(routeResult.switchedProject);
-      }
+    if (routeResult.switchedProject && this.onProjectSwitched) {
+      this.onProjectSwitched(routeResult.switchedProject);
     }
 
     const updateResult = routeResult.updateResult;
-
-    // Every accepted update is activity, including unchanged/background updates.
     this.stateManager.setupStateTimeout(projectId, stateData.state);
-
-    // No change - skip unnecessary updates
-    if (!updateResult.updated) {
-      sendJson(res, 200, {
-        success: true,
-        project: projectId,
-        state: stateData.state,
-        focusedProject: this.windowManager.getFocusedProjectId(),
-        skipped: true
-      });
-      return;
-    }
-
-    // State changed - full update (alwaysOnTop, timeout, tray)
-    if (updateResult.stateChanged) {
-      // Update always on top based on state (active states stay on top)
-      this.windowManager.updateAlwaysOnTopByState(stateData.state);
-
-      // Update tray
-      if (this.onStateUpdate) {
-        this.onStateUpdate(false);  // Full update
+    if (updateResult.updated) {
+      if (updateResult.stateChanged) {
+        this.windowManager.updateAlwaysOnTopByState(stateData.state);
+        if (this.onStateUpdate) this.onStateUpdate(false);
       }
+      this.windowManager.sendToWindow(projectId, 'state-update', routeResult.stateData);
     }
 
-    // Send update to renderer (for both state and info changes); routeResult.stateData
-    // reflects Character Lock, if set
-    this.windowManager.sendToWindow(projectId, 'state-update', routeResult.stateData);
-
-    sendJson(res, 200, {
+    return sendJson(res, 200, {
       success: true,
+      eventId: recorded.id,
       project: projectId,
       state: stateData.state,
-      focusedProject: this.windowManager.getFocusedProjectId()
+      focusedProject: this.windowManager.getFocusedProjectId(),
+      skipped: !updateResult.updated
     });
   }
 
+  historyFilters(url) {
+    return {
+      project: url.searchParams.get('project') || undefined,
+      sessionId: url.searchParams.get('sessionId') || undefined,
+      agentId: url.searchParams.get('agentId') || undefined,
+      model: url.searchParams.get('model') || undefined,
+      eventType: url.searchParams.get('eventType') || undefined,
+      since: url.searchParams.get('since') || undefined,
+      limit: url.searchParams.get('limit') || undefined
+    };
+  }
+
+  handleGetHistory(url, res) {
+    const filters = this.historyFilters(url);
+    return sendJson(res, 200, { events: this.eventStore.query(filters), filters });
+  }
+
+  handleGetHistorySummary(url, res) {
+    return sendJson(res, 200, this.eventStore.summary(this.historyFilters(url)));
+  }
+
+  handleGetAgentTree(url, res) {
+    const filters = this.historyFilters(url);
+    return sendJson(res, 200, { filters, agents: this.eventStore.agentTree(filters) });
+  }
+
   handleGetStatus(res) {
-    // Return every tracked project's latest state, plus which one the
-    // character window currently follows
-    sendJson(res, 200, {
+    return sendJson(res, 200, {
       focusedProject: this.windowManager.getFocusedProjectId(),
       projects: this.windowManager.getRegisteredStates()
     });
   }
 
   async handlePostClose(req, res) {
-    if (!hasJsonContentType(req)) {
-      sendError(res, 415, 'Content-Type must be application/json');
-      return;
-    }
-    const { data, error, statusCode } = await parseJsonBody(req, MAX_PAYLOAD_SIZE);
-
-    if (error) {
-      sendError(res, statusCode, error);
-      return;
-    }
-
-    const projectId = data.project;
-
-    if (!projectId) {
-      sendError(res, 400, 'Project is required');
-      return;
-    }
-
-    const closed = this.windowManager.closeWindow(projectId);
-
-    if (!closed) {
-      sendJson(res, 200, {
-        success: false,
-        error: `Window for project '${projectId}' not found`
-      });
-      return;
-    }
-
-    // Update tray
-    if (this.onStateUpdate) {
-      this.onStateUpdate(true);  // Menu only
-    }
-
-    sendJson(res, 200, {
-      success: true,
-      project: projectId
-    });
+    const data = await this.readJson(req, res);
+    if (data === null) return;
+    if (!data.project) return sendError(res, 400, 'Project is required');
+    const closed = this.windowManager.closeWindow(data.project);
+    if (closed && this.onStateUpdate) this.onStateUpdate(true);
+    return sendJson(res, 200, { success: closed, project: data.project });
   }
 
   handleGetHealth(res) {
-    sendJson(res, 200, { status: 'ok' });
+    return sendJson(res, 200, {
+      status: 'ok',
+      mode: 'local-only',
+      storage: this.eventStore.getStorageInfo()
+    });
   }
 
   async handlePostShow(req, res) {
-    if (req.headers['content-length'] && !hasJsonContentType(req)) {
-      sendError(res, 415, 'Content-Type must be application/json');
-      return;
+    let data = {};
+    if (req.headers['content-length']) {
+      data = await this.readJson(req, res);
+      if (data === null) return;
     }
-    const { data, error, statusCode } = await parseJsonBody(req, MAX_PAYLOAD_SIZE);
-
-    if (error) {
-      sendError(res, statusCode, error);
-      return;
-    }
-
-    const projectId = data.project;
-
-    // Show the window for a specific project, or whichever it follows
-    const shown = projectId
-      ? this.windowManager.showWindow(projectId)
+    const shown = data.project
+      ? this.windowManager.showWindow(data.project)
       : this.windowManager.showActiveWindow();
-
-    sendJson(res, 200, {
+    return sendJson(res, 200, {
       success: shown,
-      project: projectId || this.windowManager.getFocusedProjectId()
+      project: data.project || this.windowManager.getFocusedProjectId()
     });
   }
 
   handleGetDebug(res) {
-    const debugInfo = this.windowManager.getDebugInfo();
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(debugInfo, null, 2));
+    return sendJson(res, 200, {
+      ...this.windowManager.getDebugInfo(),
+      history: this.eventStore.getStorageInfo(),
+      localOnly: true
+    });
   }
 
   handlePostQuit(res) {
@@ -371,50 +379,24 @@ class HttpServer {
   }
 
   handleGetCharacterLock(res) {
-    sendJson(res, 200, {
-      character: this.windowManager.getCharacterLock()
-    });
+    return sendJson(res, 200, { character: this.windowManager.getCharacterLock() });
   }
 
   async handlePostCharacterLock(req, res) {
-    if (!hasJsonContentType(req)) {
-      sendError(res, 415, 'Content-Type must be application/json');
-      return;
-    }
-    const { data, error, statusCode } = await parseJsonBody(req, MAX_PAYLOAD_SIZE);
-
-    if (error) {
-      sendError(res, statusCode, error);
-      return;
-    }
-
+    const data = await this.readJson(req, res);
+    if (data === null) return;
     const character = data.character;
-
-    if (!character) {
-      sendError(res, 400, 'Character is required');
-      return;
-    }
-
+    if (!character) return sendError(res, 400, 'Character is required');
     if (character !== 'auto' && !CHARACTER_NAMES.includes(character)) {
-      sendJson(res, 200, {
+      return sendJson(res, 200, {
         success: false,
         error: `Invalid character: ${character}`,
         validCharacters: ['auto', ...CHARACTER_NAMES]
       });
-      return;
     }
-
     this.windowManager.setCharacterLock(character);
-
-    // Update tray menu
-    if (this.onStateUpdate) {
-      this.onStateUpdate(true);
-    }
-
-    sendJson(res, 200, {
-      success: true,
-      character: this.windowManager.getCharacterLock()
-    });
+    if (this.onStateUpdate) this.onStateUpdate(true);
+    return sendJson(res, 200, { success: true, character });
   }
 
   handleGetDashboardData(res) {
@@ -422,31 +404,36 @@ class HttpServer {
     const projects = Object.entries(this.windowManager.getRegisteredStates()).map(([projectId, state]) => ({
       project: projectId,
       state: state ? state.state : 'unknown',
-      focused: projectId === focusedProject
+      focused: projectId === focusedProject,
+      model: state ? state.model || null : null,
+      sessionId: state ? state.sessionId || null : null,
+      agentId: state ? state.agentId || null : null
     }));
-
-    sendJson(res, 200, {
+    return sendJson(res, 200, {
       health: 'ok',
+      mode: 'local-only',
       version: this.app.getVersion(),
       focusedProject,
       characterLock: this.windowManager.getCharacterLock(),
-      projects
+      projects,
+      history: this.eventStore.summary({ limit: 5000 })
     });
   }
 
   async handleGetDashboard(res) {
     const dashboardPath = path.join(__dirname, '..', 'dashboard.html');
-
     try {
       const html = await fsPromises.readFile(dashboardPath, 'utf8');
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.writeHead(200, {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Content-Security-Policy': "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:"
+      });
       res.end(html);
     } catch (err) {
       console.error('Failed to load dashboard page:', err.message);
       sendError(res, 500, 'Failed to load dashboard page');
     }
   }
-
 }
 
 module.exports = { HttpServer };

@@ -1,0 +1,20 @@
+{
+  "name": "vibemon-local-observer",
+  "displayName": "VibeMon Local Observer",
+  "description": "Reports privacy-conscious workspace activity to VibeMon Local on this computer.",
+  "version": "0.1.0",
+  "publisher": "trip-nine-local",
+  "license": "MIT",
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Other"],
+  "main": "./extension.js",
+  "activationEvents": ["onStartupFinished"],
+  "extensionKind": ["ui", "workspace"],
+  "contributes": {
+    "commands": [
+      { "command": "vibemonLocal.sendHeartbeat", "title": "VibeMon Local: Send heartbeat" }
+    ]
+  },
+  "scripts": {},
+  "dependencies": {}
+}

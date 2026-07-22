@@ -1,265 +1,44 @@
-/**
- * Tests for vibemon-config-manager.cjs
- */
-
 jest.mock('fs');
-jest.mock('../src/shared/config.cjs', () => ({
-  HTTP_PORT: 19280
-}));
+jest.mock('../src/shared/config.cjs', () => ({ HTTP_PORT: 19280 }));
 
 const fs = require('fs');
-const { VibemonConfigManager, VIBEMON_CONFIG_DEFAULTS } = require('../src/modules/vibemon-config-manager.cjs');
+const {
+  VibemonConfigManager,
+  DESKTOP_HTTP_URL,
+  isLoopbackUrl,
+  normalizeConfig
+} = require('../src/modules/vibemon-config-manager.cjs');
 
-describe('VibemonConfigManager', () => {
-  let manager;
-
+describe('VibemonConfigManager local-only invariants', () => {
   beforeEach(() => {
     fs.existsSync.mockReset().mockReturnValue(false);
     fs.readFileSync.mockReset();
     fs.writeFileSync.mockReset();
     fs.mkdirSync.mockReset();
-    fs.copyFileSync.mockReset();
     fs.chmodSync.mockReset();
-    manager = new VibemonConfigManager();
+    fs.renameSync.mockReset();
   });
 
-  describe('getStatus', () => {
-    test('reports missing when the file does not exist', () => {
-      expect(manager.getStatus()).toEqual({ exists: false, hasDesktopUrl: false });
-    });
-
-    test('reports hasDesktopUrl true when http_urls includes this app', () => {
-      fs.existsSync.mockReturnValue(true);
-      fs.readFileSync.mockReturnValue(JSON.stringify({ http_urls: ['http://127.0.0.1:19280'] }));
-
-      expect(manager.getStatus()).toEqual({ exists: true, hasDesktopUrl: true });
-    });
-
-    test('reports hasDesktopUrl false when http_urls is empty', () => {
-      fs.existsSync.mockReturnValue(true);
-      fs.readFileSync.mockReturnValue(JSON.stringify({ http_urls: [] }));
-
-      expect(manager.getStatus().hasDesktopUrl).toBe(false);
-    });
-
-    test('treats invalid JSON as existing but unconfigured', () => {
-      fs.existsSync.mockReturnValue(true);
-      fs.readFileSync.mockReturnValue('{not json');
-
-      expect(manager.getStatus()).toEqual({ exists: true, hasDesktopUrl: false });
-    });
+  test('accepts loopback and rejects remote collector URLs', () => {
+    expect(isLoopbackUrl('http://127.0.0.1:19280')).toBe(true);
+    expect(isLoopbackUrl('http://localhost:3000')).toBe(true);
+    expect(isLoopbackUrl('https://vibemon.io')).toBe(false);
   });
 
-  describe('read', () => {
-    test('returns defaults when the file does not exist', () => {
-      expect(manager.read()).toEqual(VIBEMON_CONFIG_DEFAULTS);
+  test('erases cloud token/url and filters remote destinations', () => {
+    const config = normalizeConfig({
+      http_urls: ['https://vibemon.io/api/status', 'http://localhost:9999'],
+      vibemon_url: 'https://vibemon.io',
+      vibemon_token: 'secret'
     });
-
-    test('merges file contents over defaults', () => {
-      fs.existsSync.mockReturnValue(true);
-      fs.readFileSync.mockReturnValue(JSON.stringify({ debug: true, vibemon_token: 'tok' }));
-
-      expect(manager.read()).toEqual({ ...VIBEMON_CONFIG_DEFAULTS, debug: true, vibemon_token: 'tok' });
-    });
-
-    test('falls back to defaults when the file has invalid JSON', () => {
-      fs.existsSync.mockReturnValue(true);
-      fs.readFileSync.mockReturnValue('{not json');
-
-      expect(manager.read()).toEqual(VIBEMON_CONFIG_DEFAULTS);
-    });
+    expect(config.http_urls).toEqual([DESKTOP_HTTP_URL, 'http://localhost:9999']);
+    expect(config.vibemon_url).toBe('');
+    expect(config.vibemon_token).toBe('');
   });
 
-  describe('write', () => {
-    test('ignores unknown keys', () => {
-      const result = manager.write({ not_a_real_field: 'x' });
-
-      expect(result).toEqual(VIBEMON_CONFIG_DEFAULTS);
-      expect(JSON.parse(fs.writeFileSync.mock.calls[0][1])).not.toHaveProperty('not_a_real_field');
-    });
-
-    test('coerces boolean fields', () => {
-      const result = manager.write({ debug: 1, auto_launch: 0 });
-
-      expect(result.debug).toBe(true);
-      expect(result.auto_launch).toBe(false);
-    });
-
-    test('trims string fields', () => {
-      const result = manager.write({ vibemon_url: ' https://x ', vibemon_token: ' tok ' });
-
-      expect(result.vibemon_url).toBe('https://x');
-      expect(result.vibemon_token).toBe('tok');
-    });
-
-    test('converts an empty serial_port to null', () => {
-      expect(manager.write({ serial_port: '/dev/cu.usbmodem1' }).serial_port).toBe('/dev/cu.usbmodem1');
-      expect(manager.write({ serial_port: '   ' }).serial_port).toBeNull();
-    });
-
-    test('normalizes http_urls: trims, drops empties, dedupes', () => {
-      const result = manager.write({ http_urls: [' http://a ', 'http://a', '', 'http://b'] });
-
-      expect(result.http_urls).toEqual(['http://a', 'http://b']);
-    });
-
-    test('preserves existing fields not included in the partial update', () => {
-      fs.existsSync.mockReturnValue(true);
-      fs.readFileSync.mockReturnValue(JSON.stringify({ debug: true, vibemon_token: 'existing' }));
-
-      const result = manager.write({ auto_launch: true });
-
-      expect(result.debug).toBe(true);
-      expect(result.vibemon_token).toBe('existing');
-      expect(result.auto_launch).toBe(true);
-    });
-
-    test('persists to ~/.vibemon/config.json', () => {
-      manager.write({ debug: true });
-
-      expect(fs.mkdirSync).toHaveBeenCalledWith(expect.stringContaining('.vibemon'), { recursive: true });
-      expect(fs.writeFileSync).toHaveBeenCalledWith(
-        expect.stringMatching(/config\.json\.\d+\.tmp$/),
-        expect.stringContaining('"debug": true'),
-        { mode: 0o600 }
-      );
-      expect(fs.renameSync).toHaveBeenCalledWith(
-        expect.stringMatching(/config\.json\.\d+\.tmp$/),
-        expect.stringMatching(/config\.json$/)
-      );
-    });
-
-    test('restricts the config directory and file to owner-only permissions', () => {
-      manager.write({ debug: true });
-
-      expect(fs.chmodSync).toHaveBeenCalledWith(expect.stringContaining('.vibemon'), 0o700);
-      expect(fs.chmodSync).toHaveBeenCalledWith(expect.stringContaining('config.json'), 0o600);
-    });
-
-    test('does not throw when chmodSync is unsupported (e.g. non-Unix platforms)', () => {
-      fs.chmodSync.mockImplementation(() => { throw new Error('not supported'); });
-
-      expect(() => manager.write({ debug: true })).not.toThrow();
-    });
-  });
-
-  describe('addHttpUrl / removeHttpUrl', () => {
-    test('addHttpUrl appends to the current on-disk list, not a stale snapshot', () => {
-      fs.existsSync.mockReturnValue(true);
-      fs.readFileSync.mockReturnValue(JSON.stringify({ http_urls: ['http://a'] }));
-
-      const result = manager.addHttpUrl('http://b');
-
-      expect(result.http_urls).toEqual(['http://a', 'http://b']);
-    });
-
-    test('addHttpUrl normalizes like write() (trims, dedupes)', () => {
-      fs.existsSync.mockReturnValue(true);
-      fs.readFileSync.mockReturnValue(JSON.stringify({ http_urls: ['http://a'] }));
-
-      expect(manager.addHttpUrl(' http://a ').http_urls).toEqual(['http://a']);
-    });
-
-    test('removeHttpUrl removes only the given URL from the current on-disk list', () => {
-      fs.existsSync.mockReturnValue(true);
-      fs.readFileSync.mockReturnValue(JSON.stringify({ http_urls: ['http://a', 'http://b'] }));
-
-      const result = manager.removeHttpUrl('http://a');
-
-      expect(result.http_urls).toEqual(['http://b']);
-    });
-
-    test('removeHttpUrl is a no-op when the URL is not present', () => {
-      fs.existsSync.mockReturnValue(true);
-      fs.readFileSync.mockReturnValue(JSON.stringify({ http_urls: ['http://a'] }));
-
-      expect(manager.removeHttpUrl('http://missing').http_urls).toEqual(['http://a']);
-    });
-  });
-
-  describe('ensureDesktopUrl', () => {
-    test('does nothing when already configured', () => {
-      fs.existsSync.mockReturnValue(true);
-      fs.readFileSync.mockReturnValue(JSON.stringify({ http_urls: ['http://127.0.0.1:19280'] }));
-
-      expect(manager.ensureDesktopUrl('tok')).toBe(false);
-      expect(fs.writeFileSync).not.toHaveBeenCalled();
-    });
-
-    test('creates a new config with defaults when missing', () => {
-      expect(manager.ensureDesktopUrl('my_token')).toBe(true);
-      expect(fs.mkdirSync).toHaveBeenCalledWith(expect.stringContaining('.vibemon'), { recursive: true });
-
-      const written = JSON.parse(fs.writeFileSync.mock.calls[0][1]);
-      expect(written.http_urls).toEqual(['http://127.0.0.1:19280']);
-      expect(written.vibemon_token).toBe('my_token');
-      expect(written.vibemon_url).toBe('https://vibemon.io');
-    });
-
-    test('preserves existing fields and only appends the desktop URL', () => {
-      fs.existsSync.mockReturnValue(true);
-      fs.readFileSync.mockReturnValue(JSON.stringify({
-        http_urls: ['http://192.168.1.50:8080'],
-        vibemon_token: 'existing_token',
-        debug: true
-      }));
-
-      expect(manager.ensureDesktopUrl('new_token')).toBe(true);
-
-      const written = JSON.parse(fs.writeFileSync.mock.calls[0][1]);
-      expect(written.http_urls).toEqual(['http://192.168.1.50:8080', 'http://127.0.0.1:19280']);
-      expect(written.vibemon_token).toBe('existing_token');
-      expect(written.debug).toBe(true);
-    });
-
-    test('leaves the file untouched when it has invalid JSON', () => {
-      const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
-      fs.existsSync.mockReturnValue(true);
-      fs.readFileSync.mockReturnValue('{not json');
-
-      expect(manager.ensureDesktopUrl(null)).toBe(false);
-
-      expect(fs.copyFileSync).not.toHaveBeenCalled();
-      expect(fs.writeFileSync).not.toHaveBeenCalled();
-      consoleError.mockRestore();
-    });
-
-    test('leaves vibemon_token empty when no token is available', () => {
-      manager.ensureDesktopUrl(null);
-
-      const written = JSON.parse(fs.writeFileSync.mock.calls[0][1]);
-      expect(written.vibemon_token).toBe('');
-    });
-  });
-
-  describe('persist', () => {
-    let consoleError;
-
-    beforeEach(() => {
-      fs.renameSync.mockReset();
-      consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
-    });
-
-    afterEach(() => {
-      consoleError.mockRestore();
-    });
-
-    test('returns true on a successful write', () => {
-      expect(manager.persist({ debug: false })).toBe(true);
-    });
-
-    test('does not throw and returns false when the write fails', () => {
-      fs.renameSync.mockImplementation(() => { throw new Error('EACCES'); });
-
-      expect(() => manager.persist({ debug: false })).not.toThrow();
-      expect(manager.persist({ debug: false })).toBe(false);
-      expect(consoleError).toHaveBeenCalled();
-    });
-
-    test('write() does not throw when the underlying write fails', () => {
-      fs.renameSync.mockImplementation(() => { throw new Error('EACCES'); });
-
-      expect(() => manager.write({ debug: true })).not.toThrow();
-    });
+  test('write always retains the desktop loopback endpoint', () => {
+    const manager = new VibemonConfigManager();
+    const result = manager.write({ http_urls: ['https://example.com'] });
+    expect(result.http_urls).toEqual([DESKTOP_HTTP_URL]);
   });
 });

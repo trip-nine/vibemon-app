@@ -3,289 +3,463 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'">
-  <title>VibeMon Dashboard</title>
+  <title>VibeMon Local — Agent Operations Recorder</title>
   <style>
     :root {
-      --background: hsl(217 60% 6%);
-      --card: hsl(217 50% 10%);
-      --foreground: hsl(195 30% 96%);
-      --muted: hsl(217 40% 16%);
-      --muted-foreground: hsl(195 20% 65%);
-      --border: hsl(217 40% 18%);
-      --primary: hsl(190 100% 50%);
-      --primary-soft: hsl(190 100% 80%);
-      --destructive: hsl(0 63% 55%);
+      color-scheme: dark;
+      --bg: #071018;
+      --panel: #0d1924;
+      --panel2: #112231;
+      --border: #20394b;
+      --text: #e9f5fb;
+      --muted: #8eabbc;
+      --accent: #28d7ea;
+      --green: #44d17a;
+      --orange: #ffb347;
+      --red: #ff6b6b;
     }
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: var(--background);
-      min-height: 100vh;
-      color: var(--foreground);
-      padding: 2rem 1rem;
-    }
-    .container { max-width: 960px; margin: 0 auto; }
-    header { text-align: center; margin-bottom: 2.5rem; }
-    h1 {
-      font-size: 2.5rem;
-      font-weight: 700;
-      background: linear-gradient(90deg, var(--primary), var(--primary-soft));
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
-    }
-    .tagline { color: var(--muted-foreground); margin-top: 0.25rem; font-size: 0.95rem; }
-    .grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-      gap: 1rem;
-      margin-bottom: 1.5rem;
-    }
-    .card {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 1.25rem;
-    }
-    .card h2 {
-      font-size: 0.75rem;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      color: var(--muted-foreground);
-      margin-bottom: 0.75rem;
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-    }
-    .card .value {
-      font-size: 1.5rem;
-      font-weight: 600;
-      color: var(--foreground);
-    }
-    .card .sub { color: var(--muted-foreground); font-size: 0.85rem; margin-top: 0.25rem; }
-    .status-dot {
-      display: inline-block;
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: var(--primary);
-      box-shadow: 0 0 8px hsla(190, 100%, 50%, 0.6);
-    }
-    .status-dot.offline { background: var(--destructive); box-shadow: 0 0 8px hsla(0, 63%, 55%, 0.6); }
-    .section {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 1.5rem;
-      margin-bottom: 1.5rem;
-    }
-    .section h2 {
-      font-size: 1.1rem;
-      margin-bottom: 1rem;
-      color: var(--foreground);
-    }
-    .projects-list { display: flex; flex-direction: column; gap: 0.5rem; }
-    .project-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 0.75rem 1rem;
-      background: var(--muted);
-      border-radius: 6px;
-      font-size: 0.9rem;
-    }
-    .project-row .name { font-weight: 600; color: var(--foreground); }
-    .state-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.4rem;
-      padding: 0.2rem 0.6rem;
-      border-radius: 999px;
-      font-size: 0.75rem;
-      font-weight: 600;
-      background: hsla(190, 100%, 50%, 0.08);
-    }
-    .state-badge .dot {
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: currentColor;
-    }
-    .state-start { color: #22d3ee; }
-    .state-idle { color: #68d391; }
-    .state-thinking { color: #c084fc; }
-    .state-planning { color: #2dd4bf; }
-    .state-working { color: hsl(190 100% 60%); }
-    .state-packing { color: #9ca3af; }
-    .state-notification { color: #fcd34d; }
-    .state-done { color: #34d399; }
-    .state-sleep { color: #64748b; }
-    .state-alert { color: #f87171; }
-    .empty {
-      text-align: center;
-      color: var(--muted-foreground);
-      padding: 1.5rem;
-      font-size: 0.9rem;
-    }
-    .state-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
-      gap: 0.5rem;
-    }
-    .state-chip {
-      display: flex;
-      align-items: center;
-      gap: 0.4rem;
-      padding: 0.4rem 0.6rem;
-      background: var(--muted);
-      border-radius: 6px;
-      font-size: 0.8rem;
-    }
-    .api-list { display: flex; flex-direction: column; gap: 0.4rem; font-family: 'SF Mono', Monaco, monospace; font-size: 0.82rem; }
-    .api-row { display: flex; gap: 0.6rem; padding: 0.4rem 0.6rem; background: var(--muted); border-radius: 6px; }
-    .api-method {
-      font-weight: 700;
-      min-width: 48px;
-    }
-    .method-GET { color: var(--primary); }
-    .method-POST { color: var(--primary-soft); }
-    .api-path { color: var(--foreground); flex: 1; }
-    .api-desc { color: var(--muted-foreground); font-family: inherit; }
-    footer {
-      text-align: center;
-      color: var(--muted-foreground);
-      font-size: 0.8rem;
-      margin-top: 2rem;
-    }
-    .refresh-hint {
-      font-size: 0.75rem;
-      color: var(--muted-foreground);
-      text-align: right;
-      margin-top: -0.5rem;
-      margin-bottom: 1rem;
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); }
+    header { padding: 22px 28px 16px; border-bottom: 1px solid var(--border); background: linear-gradient(180deg, #0a1620, var(--bg)); position: sticky; top: 0; z-index: 10; }
+    .title-row { display: flex; justify-content: space-between; gap: 20px; align-items: center; }
+    h1 { font-size: 24px; margin: 0; letter-spacing: -0.02em; }
+    .subtitle { color: var(--muted); margin-top: 5px; font-size: 13px; }
+    .local-badge { border: 1px solid #1d6470; background: #0b3138; color: #87f5ff; border-radius: 999px; padding: 7px 11px; font-size: 12px; font-weight: 700; }
+    .filters { display: grid; grid-template-columns: repeat(5, minmax(130px, 1fr)); gap: 10px; margin-top: 16px; }
+    input, select, button { font: inherit; }
+    input, select { width: 100%; background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 9px 10px; }
+    button { background: #155263; color: white; border: 0; border-radius: 8px; padding: 9px 14px; cursor: pointer; font-weight: 650; }
+    main { padding: 22px 28px 48px; max-width: 1700px; margin: 0 auto; }
+    .cards { display: grid; grid-template-columns: repeat(6, minmax(130px, 1fr)); gap: 12px; }
+    .card, .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; }
+    .card { padding: 15px; }
+    .card .label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+    .card .value { font-size: 25px; font-weight: 750; margin-top: 7px; font-variant-numeric: tabular-nums; }
+    .grid { display: grid; grid-template-columns: 1.15fr .85fr; gap: 14px; margin-top: 14px; }
+    .panel { padding: 16px; overflow: hidden; }
+    .panel h2 { margin: 0 0 12px; font-size: 15px; }
+    .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .muted { color: var(--muted); font-size: 12px; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th { text-align: left; color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .07em; padding: 8px 7px; border-bottom: 1px solid var(--border); }
+    td { padding: 9px 7px; border-bottom: 1px solid #172b39; vertical-align: top; }
+    tr:last-child td { border-bottom: 0; }
+    .numeric { text-align: right; font-variant-numeric: tabular-nums; }
+    .timeline { max-height: 520px; overflow: auto; }
+    .event { display: grid; grid-template-columns: 95px 115px 120px 1fr; gap: 10px; padding: 10px 2px; border-bottom: 1px solid #172b39; font-size: 12px; }
+    .event:last-child { border-bottom: 0; }
+    .event-time, .event-meta { color: var(--muted); }
+    .pill { display: inline-block; padding: 2px 7px; border-radius: 999px; background: var(--panel2); border: 1px solid var(--border); white-space: nowrap; }
+    .agent-tree { max-height: 520px; overflow: auto; }
+    .agent-row { display: grid; grid-template-columns: minmax(160px, 1.4fr) minmax(110px, 1fr) 90px 90px; gap: 9px; padding: 9px 4px; border-bottom: 1px solid #172b39; font-size: 12px; align-items: center; }
+    .agent-id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .indent { display: inline-block; width: calc(var(--depth) * 15px); }
+    .storage { margin-top: 14px; color: var(--muted); font-size: 11px; word-break: break-all; }
+    .empty { color: var(--muted); padding: 22px 4px; text-align: center; }
+    .runtime-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 2px; border-bottom: 1px solid #172b39; }
+    .runtime-row:last-child { border-bottom: 0; }
+    .runtime-title { font-weight: 700; font-size: 13px; }
+    .runtime-meta { color: var(--muted); font-size: 11px; margin-top: 3px; }
+    .status { border-radius: 999px; padding: 4px 8px; font-size: 10px; font-weight: 750; white-space: nowrap; }
+    .status.ok { color: #9affbd; background: #10351e; border: 1px solid #23683b; }
+    .status.warn { color: #ffd18a; background: #3b2a10; border: 1px solid #76531d; }
+    .status.dim { color: var(--muted); background: var(--panel2); border: 1px solid var(--border); }
+    .setup-note { color: var(--muted); font-size: 11px; line-height: 1.45; margin-top: 10px; }
+    .resource-stats { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 5px; margin-left: auto; }
+    .resource-chip { min-width: 66px; text-align: center; border: 1px solid var(--border); background: var(--panel2); border-radius: 7px; padding: 5px 7px; font-size: 10px; font-variant-numeric: tabular-nums; }
+    .resource-chip span { display: block; color: var(--muted); font-size: 8px; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 2px; }
+    .coverage-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px; max-height: 370px; overflow: auto; }
+    .coverage-card { background: var(--panel2); border: 1px solid var(--border); border-radius: 9px; padding: 10px; min-width: 0; }
+    .coverage-head { display: flex; align-items: center; justify-content: space-between; gap: 7px; }
+    .coverage-name { font-size: 12px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .coverage-meta { color: var(--muted); font-size: 10px; margin-top: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    @media (max-width: 1050px) {
+      .filters, .cards { grid-template-columns: repeat(2, minmax(130px, 1fr)); }
+      .grid { grid-template-columns: 1fr; }
     }
   </style>
 </head>
 <body>
-  <div class="container">
-    <header>
-      <h1>VibeMon</h1>
-      <div class="tagline">Real-time AI assistant status monitor</div>
-    </header>
-
-    <div class="grid">
-      <div class="card">
-        <h2><span class="status-dot" id="health-dot"></span> Server</h2>
-        <div class="value" id="health-value">checking…</div>
-        <div class="sub">http://127.0.0.1:19280</div>
-      </div>
-      <div class="card">
-        <h2>Focused Project</h2>
-        <div class="value" id="focused-value">—</div>
-        <div class="sub">the project the character follows</div>
-      </div>
-      <div class="card">
-        <h2>Character Lock</h2>
-        <div class="value" id="character-lock-value">—</div>
-        <div class="sub">auto follows each project's character</div>
-      </div>
+<header>
+  <div class="title-row">
+    <div>
+      <h1>VibeMon Local</h1>
+      <div class="subtitle">Local AI activity, resource, model, agent, and subagent observability</div>
     </div>
-
-    <div class="refresh-hint">auto-refresh every 3s</div>
-
-    <div class="section">
-      <h2>Tracked Projects</h2>
-      <div class="projects-list" id="projects-list">
-        <div class="empty">No tracked projects. Send POST /status to show the character.</div>
-      </div>
-    </div>
-
-    <div class="section">
-      <h2>States</h2>
-      <div class="state-grid">
-        <div class="state-chip state-start"><span class="dot" style="background:currentColor"></span>start</div>
-        <div class="state-chip state-idle"><span class="dot" style="background:currentColor"></span>idle</div>
-        <div class="state-chip state-thinking"><span class="dot" style="background:currentColor"></span>thinking</div>
-        <div class="state-chip state-planning"><span class="dot" style="background:currentColor"></span>planning</div>
-        <div class="state-chip state-working"><span class="dot" style="background:currentColor"></span>working</div>
-        <div class="state-chip state-packing"><span class="dot" style="background:currentColor"></span>packing</div>
-        <div class="state-chip state-notification"><span class="dot" style="background:currentColor"></span>notification</div>
-        <div class="state-chip state-done"><span class="dot" style="background:currentColor"></span>done</div>
-        <div class="state-chip state-sleep"><span class="dot" style="background:currentColor"></span>sleep</div>
-        <div class="state-chip state-alert"><span class="dot" style="background:currentColor"></span>alert</div>
-      </div>
-    </div>
-
-    <div class="section">
-      <h2>HTTP API</h2>
-      <div class="api-list">
-        <div class="api-row"><span class="api-method method-POST">POST</span><span class="api-path">/status</span><span class="api-desc">Update a project's status</span></div>
-        <div class="api-row"><span class="api-method method-GET">GET</span><span class="api-path">/status</span><span class="api-desc">All tracked project states</span></div>
-        <div class="api-row"><span class="api-method method-POST">POST</span><span class="api-path">/close</span><span class="api-desc">Close the character window</span></div>
-        <div class="api-row"><span class="api-method method-POST">POST</span><span class="api-path">/show</span><span class="api-desc">Show the character window</span></div>
-        <div class="api-row"><span class="api-method method-GET">GET</span><span class="api-path">/health</span><span class="api-desc">Health check</span></div>
-        <div class="api-row"><span class="api-method method-GET">GET</span><span class="api-path">/debug</span><span class="api-desc">Debug info</span></div>
-        <div class="api-row"><span class="api-method method-GET">GET</span><span class="api-path">/character-lock</span><span class="api-desc">Get character lock</span></div>
-        <div class="api-row"><span class="api-method method-POST">POST</span><span class="api-path">/character-lock</span><span class="api-desc">Set character lock</span></div>
-        <div class="api-row"><span class="api-method method-POST">POST</span><span class="api-path">/quit</span><span class="api-desc">Quit application</span></div>
-      </div>
-    </div>
-
-    <footer>VibeMon Desktop · <span id="version">v?</span></footer>
+    <div class="local-badge">LOOPBACK ONLY</div>
   </div>
+  <div class="filters">
+    <input id="project" placeholder="Project filter">
+    <input id="session" placeholder="Session ID">
+    <input id="model" placeholder="Model filter">
+    <select id="window">
+      <option value="">All loaded history</option>
+      <option value="24h">Last 24 hours</option>
+      <option value="7d">Last 7 days</option>
+      <option value="30d">Last 30 days</option>
+    </select>
+    <button id="refresh">Refresh</button>
+  </div>
+</header>
+<main>
+  <section class="cards">
+    <div class="card"><div class="label">Events</div><div class="value" id="events">—</div></div>
+    <div class="card"><div class="label">Sessions</div><div class="value" id="sessions">—</div></div>
+    <div class="card"><div class="label">Agents</div><div class="value" id="agents">—</div></div>
+    <div class="card"><div class="label">Models</div><div class="value" id="models">—</div></div>
+    <div class="card"><div class="label">Tokens</div><div class="value" id="tokens">—</div></div>
+    <div class="card"><div class="label">Reported Cost</div><div class="value" id="cost">—</div></div>
+  </section>
 
-  <script>
-    const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({
-      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-    })[c]);
+  <section class="panel" style="margin-top:14px">
+    <div class="panel-head"><h2>Runtime coverage</h2><span class="muted">installed, running, and event-attributed</span></div>
+    <div class="coverage-grid" id="coverageRows"></div>
+    <div class="storage" id="signaturePath"></div>
+  </section>
 
-    async function fetchJson(url) {
-      try {
-        const res = await fetch(url);
-        if (!res.ok) return null;
-        return await res.json();
-      } catch (_) {
-        return null;
-      }
+  <section class="grid">
+    <div class="panel">
+      <div class="panel-head"><h2>Live AI runtimes</h2><span class="muted" id="sampleTime">private process-tree sampling</span></div>
+      <div id="runtimeRows"></div>
+      <div class="setup-note">Observed means VibeMon can see only a local process and its CPU/RAM. Connected means a supported local hook or API can provide richer metadata. Attributed means events identify a model, agent, session, or tool.</div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h2>Telemetry adapters</h2><span class="muted">local-only setup</span></div>
+      <div id="integrationRows"></div>
+    </div>
+  </section>
+
+  <section class="grid">
+    <div class="panel">
+      <div class="panel-head"><h2>Local models</h2><span class="muted">LM Studio local CLI</span></div>
+      <div id="localModelRows"></div>
+      <div class="setup-note">Loaded model names, quantization, memory size, context capacity, and state are read locally. Prompts and responses are never collected by this connector.</div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h2>Resource history</h2><span class="muted">peak CPU and RAM by runtime</span></div>
+      <table>
+        <thead><tr><th>Runtime</th><th class="numeric">Samples</th><th class="numeric">Peak CPU</th><th class="numeric">Peak RAM</th></tr></thead>
+        <tbody id="resourceRows"></tbody>
+      </table>
+      <div class="storage" id="resourcePath"></div>
+    </div>
+  </section>
+
+  <section class="grid">
+    <div class="panel">
+      <div class="panel-head"><h2>Model attribution</h2><span class="muted">per recorded agent event</span></div>
+      <table>
+        <thead><tr><th>Model</th><th class="numeric">Agents</th><th class="numeric">Events</th><th class="numeric">Tokens</th><th class="numeric">Cost</th></tr></thead>
+        <tbody id="modelRows"></tbody>
+      </table>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h2>Storage</h2><span class="muted">append-only JSONL</span></div>
+      <table><tbody id="storageRows"></tbody></table>
+      <div class="storage" id="storagePath"></div>
+    </div>
+  </section>
+
+  <section class="grid">
+    <div class="panel">
+      <div class="panel-head"><h2>Agent and subagent lineage</h2><span class="muted">model, tokens, cost, parent</span></div>
+      <div class="agent-tree" id="agentTree"></div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h2>Recent event timeline</h2><span class="muted">newest first</span></div>
+      <div class="timeline" id="timeline"></div>
+    </div>
+  </section>
+</main>
+<script>
+  const $ = id => document.getElementById(id);
+  const fmt = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 });
+  const money = value => '$' + Number(value || 0).toFixed(value >= 100 ? 0 : 2);
+  const formatTime = value => new Date(value).toLocaleString();
+  const bytes = value => {
+    const number = Number(value || 0);
+    if (number >= 1073741824) return (number / 1073741824).toFixed(number >= 10737418240 ? 0 : 1) + ' GB';
+    if (number >= 1048576) return (number / 1048576).toFixed(0) + ' MB';
+    return fmt.format(number) + ' B';
+  };
+  const duration = seconds => {
+    const value = Number(seconds || 0);
+    if (value >= 86400) return Math.floor(value / 86400) + 'd ' + Math.floor((value % 86400) / 3600) + 'h';
+    if (value >= 3600) return Math.floor(value / 3600) + 'h ' + Math.floor((value % 3600) / 60) + 'm';
+    return Math.max(1, Math.floor(value / 60)) + 'm';
+  };
+
+  function sinceValue() {
+    const choice = $('window').value;
+    if (!choice) return '';
+    const units = { '24h': 86400000, '7d': 604800000, '30d': 2592000000 };
+    return new Date(Date.now() - units[choice]).toISOString();
+  }
+
+  function params(includeLimit = false) {
+    const query = new URLSearchParams();
+    if ($('project').value.trim()) query.set('project', $('project').value.trim());
+    if ($('session').value.trim()) query.set('sessionId', $('session').value.trim());
+    if ($('model').value.trim()) query.set('model', $('model').value.trim());
+    if (sinceValue()) query.set('since', sinceValue());
+    if (includeLimit) query.set('limit', '500');
+    return query;
+  }
+
+  function td(text, cls = '') {
+    const cell = document.createElement('td');
+    cell.textContent = text;
+    if (cls) cell.className = cls;
+    return cell;
+  }
+
+  function renderSummary(summary) {
+    $('events').textContent = fmt.format(summary.events || 0);
+    $('sessions').textContent = fmt.format(summary.sessions || 0);
+    $('agents').textContent = fmt.format(summary.agents || 0);
+    $('models').textContent = fmt.format((summary.models || []).length);
+    $('tokens').textContent = fmt.format(summary.totalTokens || 0);
+    $('cost').textContent = money(summary.reportedCostUsd || 0);
+
+    const modelRows = $('modelRows');
+    modelRows.innerHTML = '';
+    for (const model of summary.models || []) {
+      const row = document.createElement('tr');
+      row.append(td(model.model || 'unknown'));
+      row.append(td(fmt.format(model.agents || 0), 'numeric'));
+      row.append(td(fmt.format(model.events || 0), 'numeric'));
+      row.append(td(fmt.format(model.tokens || 0), 'numeric'));
+      row.append(td(money(model.reportedCostUsd || 0), 'numeric'));
+      modelRows.append(row);
     }
+    if (!modelRows.children.length) modelRows.innerHTML = '<tr><td colspan="5" class="empty">No model-attributed events yet.</td></tr>';
 
-    async function refresh() {
-      const data = await fetchJson('/dashboard-data');
+    const storage = summary.storage || {};
+    $('storageRows').innerHTML = [
+      ['Format', storage.format || 'jsonl-v1'],
+      ['Files', storage.files || 0],
+      ['Disk', fmt.format(storage.bytes || 0) + ' bytes'],
+      ['Loaded events', fmt.format(storage.inMemoryEvents || 0)]
+    ].map(([label, value]) => `<tr><td>${label}</td><td class="numeric">${value}</td></tr>`).join('');
+    $('storagePath').textContent = storage.directory || '';
+  }
 
-      const healthDot = document.getElementById('health-dot');
-      const healthValue = document.getElementById('health-value');
-      if (data && data.health === 'ok') {
-        healthDot.classList.remove('offline');
-        healthValue.textContent = 'Online';
-      } else {
-        healthDot.classList.add('offline');
-        healthValue.textContent = 'Offline';
-        return;
-      }
-
-      document.getElementById('focused-value').textContent = data.focusedProject || '—';
-      document.getElementById('character-lock-value').textContent = data.characterLock || 'auto';
-      if (data.version) document.getElementById('version').textContent = 'v' + data.version;
-
-      const list = document.getElementById('projects-list');
-      if (!data.projects || data.projects.length === 0) {
-        list.innerHTML = '<div class="empty">No tracked projects. Send POST /status to show the character.</div>';
-      } else {
-        list.innerHTML = data.projects.map((p) => {
-          const state = p.state || 'unknown';
-          const stateClass = 'state-' + state;
-          const focusedMark = p.focused ? ' ★' : '';
-          return `<div class="project-row">
-            <span class="name">${escapeHtml(p.project)}${focusedMark}</span>
-            <span class="state-badge ${stateClass}"><span class="dot"></span>${escapeHtml(state)}</span>
-          </div>`;
-        }).join('');
-      }
+  function depths(agents) {
+    const map = new Map(agents.map(agent => [agent.agentId, agent]));
+    const cache = new Map();
+    function depth(agent, seen = new Set()) {
+      if (cache.has(agent.agentId)) return cache.get(agent.agentId);
+      if (!agent.parentAgentId || !map.has(agent.parentAgentId) || seen.has(agent.agentId)) return 0;
+      seen.add(agent.agentId);
+      const value = Math.min(8, depth(map.get(agent.parentAgentId), seen) + 1);
+      cache.set(agent.agentId, value);
+      return value;
     }
+    for (const agent of agents) cache.set(agent.agentId, depth(agent));
+    return cache;
+  }
 
-    refresh();
-    setInterval(refresh, 3000);
-  </script>
+  function renderAgents(agents) {
+    const box = $('agentTree');
+    box.innerHTML = '';
+    const depthMap = depths(agents);
+    for (const agent of agents) {
+      const row = document.createElement('div');
+      row.className = 'agent-row';
+      const identity = document.createElement('div');
+      identity.className = 'agent-id';
+      identity.title = agent.agentId;
+      identity.innerHTML = `<span class="indent" style="--depth:${depthMap.get(agent.agentId) || 0}"></span>${agent.agentName || agent.agentId}`;
+      const model = document.createElement('div');
+      model.innerHTML = `<span class="pill">${agent.model || 'unknown model'}</span>`;
+      const tokens = document.createElement('div'); tokens.className = 'numeric'; tokens.textContent = fmt.format(agent.tokens || 0);
+      const cost = document.createElement('div'); cost.className = 'numeric'; cost.textContent = money(agent.reportedCostUsd || 0);
+      row.append(identity, model, tokens, cost);
+      box.append(row);
+    }
+    if (!agents.length) box.innerHTML = '<div class="empty">No agent identifiers recorded yet. Send sessionId, agentId, parentAgentId, and model in hook events.</div>';
+  }
+
+  function renderTimeline(events) {
+    const box = $('timeline');
+    box.innerHTML = '';
+    for (const event of events) {
+      const row = document.createElement('div');
+      row.className = 'event';
+      const title = event.description || event.tool || event.state || event.eventType;
+      row.innerHTML = `
+        <div class="event-time">${formatTime(event.timestamp)}</div>
+        <div><span class="pill">${event.eventType || 'event'}</span></div>
+        <div class="event-meta">${event.model || '—'}<br>${fmt.format(event.totalTokens || 0)} tokens</div>
+        <div><strong>${event.agentName || event.agentId || event.sessionId || event.project || 'Unattributed'}</strong><br><span class="muted">${title || ''}</span></div>`;
+      box.append(row);
+    }
+    if (!events.length) box.innerHTML = '<div class="empty">No historical events match the current filters.</div>';
+  }
+
+  function renderRuntimes(snapshot, attributedRuntimes) {
+    const processes = snapshot.processes || [];
+    const attributed = new Set((attributedRuntimes || []).map(item => String(item.runtime || '').toLowerCase()));
+    const box = $('runtimeRows');
+    box.innerHTML = '';
+    $('sampleTime').textContent = snapshot.timestamp ? `sampled ${new Date(snapshot.timestamp).toLocaleTimeString()}` : 'private process-tree sampling';
+    for (const process of processes) {
+      const row = document.createElement('div'); row.className = 'runtime-row';
+      const info = document.createElement('div');
+      const title = document.createElement('div'); title.className = 'runtime-title'; title.textContent = process.runtime;
+      const meta = document.createElement('div'); meta.className = 'runtime-meta';
+      meta.textContent = `${process.surface} · ${process.processCount || 1} process${process.processCount === 1 ? '' : 'es'} · PID ${process.pid}${process.terminal ? ` · ${process.terminal}` : ''}`;
+      info.append(title, meta);
+      const stats = document.createElement('div'); stats.className = 'resource-stats';
+      for (const [label, value] of [['CPU', `${Number(process.cpuPercent || 0).toFixed(1)}%`], ['RAM', bytes(process.memoryBytes)], ['UP', duration(process.uptimeSeconds)]]) {
+        const chip = document.createElement('div'); chip.className = 'resource-chip';
+        const caption = document.createElement('span'); caption.textContent = label; chip.append(caption, document.createTextNode(value)); stats.append(chip);
+      }
+      const badge = document.createElement('span');
+      const isAttributed = attributed.has(String(process.runtime || '').toLowerCase());
+      const isConnected = process.telemetry === 'local-api' || process.telemetry === 'hooks' || process.telemetry === 'workspace-hooks';
+      badge.className = `status ${isAttributed || isConnected ? 'ok' : 'dim'}`;
+      badge.textContent = isAttributed ? 'ATTRIBUTED' : (isConnected ? 'CONNECTABLE' : 'OBSERVED');
+      stats.append(badge);
+      row.append(info, stats); box.append(row);
+    }
+    if (!processes.length) box.innerHTML = '<div class="empty">No known local AI runtimes are currently running.</div>';
+  }
+
+  function renderLocalModels(lmStudio) {
+    const box = $('localModelRows'); box.innerHTML = '';
+    for (const model of (lmStudio && lmStudio.models) || []) {
+      const row = document.createElement('div'); row.className = 'runtime-row';
+      const info = document.createElement('div');
+      const title = document.createElement('div'); title.className = 'runtime-title'; title.textContent = model.displayName || model.identifier;
+      const meta = document.createElement('div'); meta.className = 'runtime-meta';
+      const context = model.contextLength ? `${fmt.format(model.contextLength)} context` : 'context unknown';
+      meta.textContent = `${model.identifier}${model.quantization ? ` · ${model.quantization}` : ''} · ${context}`;
+      info.append(title, meta);
+      const stats = document.createElement('div'); stats.className = 'resource-stats';
+      const size = document.createElement('div'); size.className = 'resource-chip'; size.innerHTML = '<span>SIZE</span>' + bytes(model.sizeBytes);
+      const state = document.createElement('span'); state.className = 'status ok'; state.textContent = String(model.status || 'loaded').toUpperCase();
+      stats.append(size, state); row.append(info, stats); box.append(row);
+    }
+    if (!box.children.length) box.innerHTML = `<div class="empty">${lmStudio && lmStudio.available ? 'LM Studio is available, but no models are loaded.' : 'LM Studio local CLI is not currently available.'}</div>`;
+  }
+
+  function renderResources(summary) {
+    const box = $('resourceRows'); box.innerHTML = '';
+    for (const item of summary.runtimes || []) {
+      const row = document.createElement('tr');
+      row.append(td(`${item.runtime} · ${item.surface}`));
+      row.append(td(fmt.format(item.samples || 0), 'numeric'));
+      row.append(td(`${Number(item.peakCpuPercent || 0).toFixed(1)}%`, 'numeric'));
+      row.append(td(bytes(item.peakMemoryBytes), 'numeric'));
+      box.append(row);
+    }
+    if (!box.children.length) box.innerHTML = '<tr><td colspan="4" class="empty">Resource samples will appear after runtimes are detected.</td></tr>';
+    $('resourcePath').textContent = summary.directory || '';
+  }
+
+  function renderRuntimeCatalog(catalog, snapshot, attributedRuntimes) {
+    const box = $('coverageRows'); box.innerHTML = '';
+    const active = new Set((snapshot.processes || []).map(item => `${item.runtime}|${item.surface}`.toLowerCase()));
+    const attributed = new Set((attributedRuntimes || []).map(item => String(item.runtime || '').toLowerCase()));
+    const entries = [...(catalog.runtimes || [])].sort((a, b) => {
+      const aScore = (active.has(`${a.runtime}|${a.surface}`.toLowerCase()) ? 4 : 0) + (attributed.has(a.runtime.toLowerCase()) ? 2 : 0) + (a.installed ? 1 : 0);
+      const bScore = (active.has(`${b.runtime}|${b.surface}`.toLowerCase()) ? 4 : 0) + (attributed.has(b.runtime.toLowerCase()) ? 2 : 0) + (b.installed ? 1 : 0);
+      return bScore - aScore || a.runtime.localeCompare(b.runtime) || a.surface.localeCompare(b.surface);
+    });
+    for (const entry of entries) {
+      const running = active.has(`${entry.runtime}|${entry.surface}`.toLowerCase());
+      const hasEvents = attributed.has(String(entry.runtime || '').toLowerCase());
+      const card = document.createElement('div'); card.className = 'coverage-card';
+      const head = document.createElement('div'); head.className = 'coverage-head';
+      const name = document.createElement('div'); name.className = 'coverage-name'; name.textContent = entry.runtime;
+      const badge = document.createElement('span');
+      const state = hasEvents ? 'ATTRIBUTED' : (running ? 'RUNNING' : (entry.installed ? 'INSTALLED' : (entry.kind === 'provider' ? 'EVENT READY' : 'SUPPORTED')));
+      badge.className = `status ${hasEvents || running ? 'ok' : (entry.installed ? 'warn' : 'dim')}`; badge.textContent = state;
+      const meta = document.createElement('div'); meta.className = 'coverage-meta';
+      const command = (entry.executables || []).join(', ');
+      meta.textContent = `${entry.surface} · ${entry.telemetry}${command ? ` · ${command}` : ''}${entry.source === 'custom' ? ' · custom' : ''}`;
+      head.append(name, badge); card.append(head, meta); box.append(card);
+    }
+    $('signaturePath').textContent = `Add future tools locally: ${catalog.customSignatureFile || '~/.vibemon/runtime-signatures.json'}`;
+  }
+
+  function renderIntegrations(integrations) {
+    const box = $('integrationRows');
+    box.innerHTML = '';
+    const visible = new Set(['--claude', '--codex', '--lm-studio', '--editor-companion', '--antigravity', '--claude-desktop']);
+    for (const integration of integrations.filter(item => visible.has(item.flag))) {
+      const row = document.createElement('div'); row.className = 'runtime-row';
+      const info = document.createElement('div');
+      const title = document.createElement('div'); title.className = 'runtime-title'; title.textContent = integration.name;
+      const meta = document.createElement('div'); meta.className = 'runtime-meta';
+      meta.textContent = integration.detail || (integration.hasHook
+        ? (integration.requiresTrust ? 'Installed · approve with /hooks in a new Codex session' : 'Installed · restart existing terminals')
+        : (integration.present ? 'Detected but not connected' : 'Runtime not detected'));
+      info.append(title, meta);
+      const actions = document.createElement('div');
+      const badge = document.createElement('span');
+      const state = integration.state || (integration.hasHook ? 'installed' : 'pending');
+      badge.className = `status ${['installed', 'connected'].includes(state) ? 'ok' : (state === 'available' ? 'warn' : 'dim')}`;
+      badge.textContent = state.toUpperCase();
+      actions.append(badge);
+      if (integration.present && integration.installAvailable) {
+        const button = document.createElement('button'); button.style.marginLeft = '8px'; button.textContent = integration.hasHook ? 'Reinstall' : 'Install';
+        button.addEventListener('click', async () => {
+          button.disabled = true; button.textContent = 'Installing…';
+          try {
+            const response = await fetch('/integrations/install', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ flag: integration.flag })
+            });
+            const data = await response.json();
+            renderIntegrations(data.integrations || []);
+          } catch (error) {
+            console.error(error); button.disabled = false; button.textContent = 'Retry';
+          }
+        });
+        actions.append(button);
+      }
+      row.append(info, actions); box.append(row);
+    }
+  }
+
+  async function refresh() {
+    $('refresh').disabled = true;
+    try {
+      const query = params();
+      const eventQuery = params(true);
+      const [summary, history, agents, runtimes, runtimeCatalog, runtimeSummary, integrations] = await Promise.all([
+        fetch('/history/summary?' + query).then(response => response.json()),
+        fetch('/history?' + eventQuery).then(response => response.json()),
+        fetch('/history/agents?' + query).then(response => response.json()),
+        fetch('/runtimes').then(response => response.json()),
+        fetch('/runtimes/catalog').then(response => response.json()),
+        fetch('/runtimes/summary?since=' + encodeURIComponent(new Date(Date.now() - 86400000).toISOString())).then(response => response.json()),
+        fetch('/integrations').then(response => response.json())
+      ]);
+      renderSummary(summary);
+      renderTimeline(history.events || []);
+      renderAgents(agents.agents || []);
+      renderRuntimes(runtimes, summary.runtimes || []);
+      renderLocalModels(runtimes.lmStudio || {});
+      renderResources(runtimeSummary);
+      renderRuntimeCatalog(runtimeCatalog, runtimes, summary.runtimes || []);
+      renderIntegrations(integrations.integrations || []);
+    } catch (error) {
+      console.error(error);
+    } finally {
+      $('refresh').disabled = false;
+    }
+  }
+
+  $('refresh').addEventListener('click', refresh);
+  for (const id of ['project', 'session', 'model', 'window']) {
+    $(id).addEventListener(id === 'window' ? 'change' : 'keydown', event => {
+      if (id === 'window' || event.key === 'Enter') refresh();
+    });
+  }
+  refresh();
+  setInterval(refresh, 10000);
+</script>
 </body>
 </html>
