@@ -28,6 +28,7 @@ const { HookInstaller } = require('./modules/hook-installer.cjs');
 const { VibemonConfigManager } = require('./modules/vibemon-config-manager.cjs');
 const { UpdateChecker } = require('./modules/update-checker.cjs');
 const { SettingsWindowManager } = require('./modules/settings-window-manager.cjs');
+const { DashboardWindowManager } = require('./modules/dashboard-window-manager.cjs');
 const { UsageRefresher } = require('./modules/usage-refresher.cjs');
 const { validateStatusPayload } = require('./modules/validators.cjs');
 const registryCache = require('./shared/registry-cache.cjs');
@@ -56,6 +57,7 @@ const updateChecker = new UpdateChecker();
 const usageRefresher = new UsageRefresher();
 let trayManager = null;
 let settingsWindowManager = null;
+let dashboardWindowManager = null;
 let httpServer = null;
 let wsClient = null;
 let hookCheckTimer = null;
@@ -96,7 +98,7 @@ windowManager.onAlwaysOnTopChanged = (projectId) => {
 
 // Handle second instance launch attempt
 app.on('second-instance', () => {
-  windowManager.showActiveWindow();
+  if (dashboardWindowManager) dashboardWindowManager.open();
 });
 
 // Set up state manager callbacks
@@ -376,12 +378,8 @@ ipcMain.handle('focus-terminal', async (event) => {
 
 // App lifecycle
 app.whenReady().then(() => {
-  // Hide Dock icon on macOS (tray-only app)
-  if (process.platform === 'darwin' && app.dock) {
-    app.dock.hide();
-  }
-
-  // Create tray (the window is created on demand via HTTP /status endpoint)
+  // Keep a normal Dock presence: this local observability build has a visible
+  // dashboard in addition to its menu-bar status controls.
   trayManager = new TrayManager(windowManager, app, stateManager);
   trayManager.createTray();
 
@@ -394,6 +392,7 @@ app.whenReady().then(() => {
     }
   };
   trayManager.setSettingsWindowManager(settingsWindowManager);
+  dashboardWindowManager = new DashboardWindowManager();
 
   // Start HTTP server
   httpServer = new HttpServer(stateManager, windowManager, app);
@@ -416,7 +415,8 @@ app.whenReady().then(() => {
       );
     }
   };
-  httpServer.start();
+  const localServer = httpServer.start();
+  localServer.once('listening', () => dashboardWindowManager.open());
 
   // Start WebSocket client (if configured)
   wsClient = new WsClient();
@@ -519,7 +519,7 @@ app.whenReady().then(() => {
   });
 
   app.on('activate', () => {
-    windowManager.showActiveWindow();
+    if (dashboardWindowManager) dashboardWindowManager.open();
   });
 });
 
@@ -563,6 +563,9 @@ app.on('before-quit', () => {
   }
   if (settingsWindowManager) {
     settingsWindowManager.cleanup();
+  }
+  if (dashboardWindowManager) {
+    dashboardWindowManager.cleanup();
   }
   if (httpServer) {
     httpServer.stop();
