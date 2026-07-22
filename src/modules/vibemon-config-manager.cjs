@@ -53,6 +53,11 @@ function normalizeConfig(raw) {
 }
 
 class VibemonConfigManager {
+  constructor() {
+    // Sanitize legacy cloud destinations immediately, before periodic checks.
+    this.ensureDesktopUrl();
+  }
+
   getStatus() {
     const raw = readRawConfig();
     if (raw === null) return { exists: false, hasDesktopUrl: false, localOnly: true };

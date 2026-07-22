@@ -211,8 +211,8 @@ class HttpServer {
   }
 
   handleGetAgentTree(url, res) {
-    const sessionId = url.searchParams.get('sessionId') || undefined;
-    return sendJson(res, 200, { sessionId: sessionId || null, agents: this.eventStore.agentTree(sessionId) });
+    const filters = this.historyFilters(url);
+    return sendJson(res, 200, { filters, agents: this.eventStore.agentTree(filters) });
   }
 
   handleGetStatus(res) {

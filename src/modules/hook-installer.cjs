@@ -3,8 +3,8 @@
  *
  * The upstream app downloaded and executed an installer from docs.vibemon.io.
  * Local-only mode never downloads or executes remote code. Existing hook files
- * are detected and reported; installation must be performed from reviewed local
- * files by the operator.
+ * are detected and reported; Claude Code can be installed from the reviewed adapter bundled with this fork;
+ * no network download is performed.
  */
 
 const fs = require('fs');
@@ -12,13 +12,14 @@ const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const Store = require('electron-store');
+const { installClaudeHooks } = require('../../scripts/install-local-hooks.cjs');
 
 function homePath(...segments) { return path.join(os.homedir(), ...segments); }
 
 const TOOLS = [
   {
     name: 'Claude Code', flag: '--claude', command: 'claude', homeDir: homePath('.claude'),
-    hookFile: homePath('.claude', 'hooks', 'vibemon.py')
+    hookFile: homePath('.vibemon', 'hooks', 'claude.py')
   },
   {
     name: 'Codex CLI', flag: '--codex', command: 'codex', homeDir: homePath('.codex'),
@@ -81,7 +82,7 @@ class HookInstaller {
       present: this.isPresent(tool),
       hasHook: this.hasHook(tool),
       changed: false,
-      installAvailable: false,
+      installAvailable: tool.flag === '--claude',
       localOnly: true
     }));
     return this.cachedStatuses;
@@ -106,14 +107,28 @@ class HookInstaller {
   }
 
   async installTools(tools) {
-    return tools.map(tool => ({
-      tool,
-      result: {
-        ok: false,
-        reason: 'local-only-manual-install-required',
-        message: 'Remote hook installation is disabled. Install reviewed hook files locally.'
+    const results = [];
+    for (const tool of tools) {
+      if (tool.flag !== '--claude') {
+        results.push({
+          tool,
+          result: {
+            ok: false,
+            reason: 'local-adapter-not-bundled',
+            message: 'No reviewed local adapter is bundled for this tool yet.'
+          }
+        });
+        continue;
       }
-    }));
+      try {
+        const installed = installClaudeHooks();
+        results.push({ tool, result: { ok: true, ...installed } });
+      } catch (error) {
+        results.push({ tool, result: { ok: false, reason: 'local-install-failed', error: error.message } });
+      }
+    }
+    this.refreshStatuses();
+    return results;
   }
 
   installByFlag(flag) {

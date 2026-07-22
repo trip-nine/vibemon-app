@@ -10,6 +10,16 @@ VibeMon Local is an append-only, loopback-only flight recorder for AI coding age
 - The Electron process installs an outbound guard covering `fetch`, HTTP(S), TCP, and TLS. Non-loopback connections throw `VIBEMON_LOCAL_ONLY`.
 - Historical files are owner-only JSONL under Electron's `userData/history` directory.
 
+## Install the Claude Code adapter
+
+From the repository root:
+
+```bash
+npm run install:local-hooks
+```
+
+This copies the reviewed, bundled adapter to `~/.vibemon/hooks/claude.py` and merges lifecycle hooks into `~/.claude/settings.json`. It does not download or execute remote code. The adapter records metadata only; it intentionally excludes prompt bodies, assistant messages, source-code contents, and tool-output bodies.
+
 ## Event ingestion
 
 Existing status hooks continue to use:

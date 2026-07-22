@@ -235,8 +235,9 @@ class EventStore {
     };
   }
 
-  agentTree(sessionId) {
-    const events = this.events.filter(event => !sessionId || event.sessionId === sessionId);
+  agentTree(filters = {}) {
+    if (typeof filters === 'string') filters = { sessionId: filters };
+    const events = this.filterEvents(filters);
     const nodes = new Map();
 
     for (const event of events) {

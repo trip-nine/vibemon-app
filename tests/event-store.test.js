@@ -28,8 +28,15 @@ describe('EventStore', () => {
   test('builds an agent tree with per-agent totals', () => {
     store.record({ sessionId: 's1', agentId: 'a1', model: 'sonnet', totalTokens: 10 });
     store.record({ sessionId: 's1', agentId: 'a2', parentAgentId: 'a1', model: 'opus', totalTokens: 20 });
-    const tree = store.agentTree('s1');
+    const tree = store.agentTree({ sessionId: 's1' });
     expect(tree).toHaveLength(2);
     expect(tree.find(agent => agent.agentId === 'a2').parentAgentId).toBe('a1');
+  });
+
+  test('filters lineage by project, model, and time window', () => {
+    store.record({ timestamp: '2026-01-01T00:00:00Z', project: 'old', sessionId: 's0', agentId: 'old', model: 'sonnet' });
+    store.record({ timestamp: '2026-07-21T00:00:00Z', project: 'new', sessionId: 's1', agentId: 'new', model: 'opus' });
+    const tree = store.agentTree({ project: 'new', model: 'opus', since: '2026-07-01T00:00:00Z' });
+    expect(tree.map(agent => agent.agentId)).toEqual(['new']);
   });
 });
