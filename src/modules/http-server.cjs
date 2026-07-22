@@ -11,6 +11,7 @@ const { setCorsHeaders, isAllowedOrigin, hasJsonContentType, sendJson, sendError
 const { validateStatusPayload } = require('./validators.cjs');
 const { EventStore } = require('./event-store.cjs');
 const { RuntimeScanner } = require('./runtime-scanner.cjs');
+const { RuntimeMonitor } = require('./runtime-monitor.cjs');
 const { installLocalOnlyGuard } = require('./local-only-guard.cjs');
 
 if (!process.env.JEST_WORKER_ID) installLocalOnlyGuard();
@@ -25,6 +26,7 @@ class HttpServer {
     this.app = app;
     this.eventStore = new EventStore(app);
     this.runtimeScanner = new RuntimeScanner();
+    this.runtimeMonitor = new RuntimeMonitor(app, { scanner: this.runtimeScanner });
     this.hookInstaller = null;
     this.onStateUpdate = null;
     this.onProjectSwitched = null;
@@ -57,6 +59,7 @@ class HttpServer {
   }
 
   start() {
+    this.runtimeMonitor.start();
     this.server = http.createServer((req, res) => {
       this.handleRequest(req, res).catch((err) => {
         console.error('Unhandled request error:', err.message);
@@ -76,6 +79,7 @@ class HttpServer {
   stop() {
     this.requestCounts.clear();
     this.eventStore.close();
+    this.runtimeMonitor.stop();
     return new Promise((resolve) => {
       if (!this.server) return resolve();
       const timeout = setTimeout(resolve, 5000);
@@ -112,6 +116,8 @@ class HttpServer {
       case 'GET /history/agents': return this.handleGetAgentTree(parsedUrl, res);
       case 'GET /history/storage': return sendJson(res, 200, this.eventStore.getStorageInfo());
       case 'GET /runtimes': return this.handleGetRuntimes(res);
+      case 'GET /runtimes/history': return this.handleGetRuntimeHistory(parsedUrl, res);
+      case 'GET /runtimes/summary': return this.handleGetRuntimeSummary(parsedUrl, res);
       case 'GET /integrations': return this.handleGetIntegrations(res);
       case 'POST /integrations/install': return this.handleInstallIntegration(req, res);
       case 'POST /close': return this.handlePostClose(req, res);
@@ -128,20 +134,68 @@ class HttpServer {
   }
 
   handleGetRuntimes(res) {
-    return sendJson(res, 200, { processes: this.runtimeScanner.scan() });
+    return sendJson(res, 200, this.runtimeMonitor.current());
+  }
+
+  runtimeFilters(url) {
+    return {
+      since: url.searchParams.get('since') || undefined,
+      limit: url.searchParams.get('limit') || undefined
+    };
+  }
+
+  handleGetRuntimeHistory(url, res) {
+    const filters = this.runtimeFilters(url);
+    return sendJson(res, 200, { snapshots: this.runtimeMonitor.query(filters), filters });
+  }
+
+  handleGetRuntimeSummary(url, res) {
+    return sendJson(res, 200, this.runtimeMonitor.summary(this.runtimeFilters(url)));
   }
 
   integrationView() {
-    if (!this.hookInstaller) return [];
-    return this.hookInstaller.refreshStatuses().map(tool => ({
+    const snapshot = this.runtimeMonitor.current();
+    const running = new Set((snapshot.processes || []).map(process => process.runtime));
+    const installed = this.hookInstaller ? this.hookInstaller.refreshStatuses().map(tool => ({
       name: tool.name,
       flag: tool.flag,
       present: Boolean(tool.present),
       hasHook: Boolean(tool.hasHook),
       installAvailable: Boolean(tool.installAvailable),
       requiresTrust: Boolean(tool.requiresTrust),
-      localOnly: true
-    }));
+      localOnly: true,
+      state: tool.hasHook ? 'installed' : 'pending'
+    })) : [];
+    return [
+      ...installed,
+      {
+        name: 'LM Studio local models', flag: '--lm-studio',
+        present: running.has('LM Studio'), hasHook: Boolean(snapshot.lmStudio && snapshot.lmStudio.available),
+        installAvailable: false, localOnly: true,
+        state: snapshot.lmStudio && snapshot.lmStudio.available ? 'connected' : 'observed',
+        detail: snapshot.lmStudio && snapshot.lmStudio.available
+          ? 'Local model inventory connected automatically'
+          : 'Process resources are observed; start LM Studio to connect its local CLI'
+      },
+      {
+        name: 'VS Code / Cursor companion', flag: '--editor-companion',
+        present: running.has('VS Code') || running.has('Cursor'), hasHook: false,
+        installAvailable: false, localOnly: true, state: 'available',
+        detail: 'Optional companion source is bundled under integrations/vscode-vibemon'
+      },
+      {
+        name: 'Antigravity workspace hook', flag: '--antigravity',
+        present: running.has('Antigravity'), hasHook: false,
+        installAvailable: false, localOnly: true, state: 'available',
+        detail: 'Install per project: npm run install:antigravity-hooks -- /workspace/path'
+      },
+      {
+        name: 'Claude Desktop', flag: '--claude-desktop',
+        present: running.has('Claude'), hasHook: false,
+        installAvailable: false, localOnly: true, state: 'observed',
+        detail: 'Process/resource presence only; no supported passive chat lifecycle interface'
+      }
+    ];
   }
 
   handleGetIntegrations(res) {

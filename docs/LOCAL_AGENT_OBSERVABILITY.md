@@ -9,6 +9,8 @@ VibeMon Local is an append-only, loopback-only flight recorder for AI coding age
 - `~/.vibemon/config.json` is continuously normalized to loopback HTTP destinations only; cloud URL/token values are erased.
 - The Electron process installs an outbound guard covering `fetch`, HTTP(S), TCP, and TLS. Non-loopback connections throw `VIBEMON_LOCAL_ONLY`.
 - Historical files are owner-only JSONL under Electron's `userData/history` directory.
+- Resource snapshots are owner-only daily JSONL under `userData/resource-history`.
+- Process sampling never requests command arguments, environment variables, prompts, or file contents.
 
 ## Install the Claude Code adapter
 
@@ -19,6 +21,18 @@ npm run install:local-hooks
 ```
 
 This copies the reviewed, bundled adapter to `~/.vibemon/hooks/claude.py` and merges lifecycle hooks into `~/.claude/settings.json`. It does not download or execute remote code. The adapter records metadata only; it intentionally excludes prompt bodies, assistant messages, source-code contents, and tool-output bodies.
+
+Codex CLI hooks can be installed with `npm run install:codex-hooks`; approve
+them with `/hooks` in a new Codex session. A documented Antigravity workspace
+hook can be installed with:
+
+```bash
+npm run install:antigravity-hooks -- /absolute/path/to/workspace
+```
+
+The Antigravity hook currently records the documented `run_command`
+`PreToolUse` boundary. Other activity is still visible through process/resource
+history and is deliberately labeled observed rather than attributed.
 
 ## Event ingestion
 
@@ -82,6 +96,9 @@ All fields are optional on `/events`. `/status` still requires a valid live `sta
 - `GET /history/agents?sessionId=`
 - `GET /history/storage`
 - `GET /dashboard-data`
+- `GET /runtimes`
+- `GET /runtimes/history?since=&limit=`
+- `GET /runtimes/summary?since=&limit=`
 
 The dashboard at `http://127.0.0.1:19280/` shows:
 
@@ -90,6 +107,19 @@ The dashboard at `http://127.0.0.1:19280/` shows:
 - parent/child subagent lineage;
 - event replay timeline;
 - local storage location and size.
+- live process-tree CPU, RAM, process count, and uptime;
+- 24-hour peak resource history by runtime;
+- loaded LM Studio models and local model metadata.
+
+## Presence, connection, and attribution
+
+- **Observed**: a known local process is running; only process/resource counters are available.
+- **Connectable**: the runtime exposes a supported local hook or local API.
+- **Attributed**: stored events name that runtime and may include sessions, agents, tools, models, or tokens.
+
+The distinction prevents process activity from being misrepresented as AI
+activity. For example, VS Code CPU usage proves only that VS Code is busy; it
+does not prove which extension or model caused the work.
 
 ## Model and cost attribution
 

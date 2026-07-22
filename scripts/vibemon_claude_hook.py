@@ -21,8 +21,11 @@ PORT = 19280
 EVENTS_PATH = "/events"
 TIMEOUT_SECONDS = 0.75
 RUNTIME = os.environ.get("VIBEMON_RUNTIME") or (
-    "codex" if pathlib.Path(__file__).stem.lower().startswith("codex") else "claude"
+    "codex" if pathlib.Path(__file__).stem.lower().startswith("codex") else (
+        "antigravity" if pathlib.Path(__file__).stem.lower().startswith("antigravity") else "claude"
+    )
 )
+FALLBACK_HOOK_EVENT = os.environ.get("VIBEMON_HOOK_EVENT")
 
 
 def _text(value: Any, limit: int = 4096) -> str | None:
@@ -103,10 +106,10 @@ def _files_from_tool(tool_name: str | None, tool_input: Any, tool_response: Any)
 
 
 def _base_event(payload: dict[str, Any]) -> dict[str, Any]:
-    session_id = _text(payload.get("session_id"), 256)
-    current_agent_id = _text(payload.get("agent_id"), 256)
-    cwd = _text(payload.get("cwd"), 2048)
-    hook_name = _text(payload.get("hook_event_name"), 128) or "Unknown"
+    session_id = _text(payload.get("session_id") or payload.get("sessionId"), 256)
+    current_agent_id = _text(payload.get("agent_id") or payload.get("agentId"), 256)
+    cwd = _text(payload.get("cwd") or payload.get("workspace_dir") or os.getcwd(), 2048)
+    hook_name = _text(payload.get("hook_event_name") or payload.get("event_name") or FALLBACK_HOOK_EVENT, 128) or "Unknown"
     event = {
         "eventType": f"{RUNTIME}.{hook_name}",
         "runtime": RUNTIME,
@@ -155,9 +158,9 @@ def _agent_tool_event(payload: dict[str, Any], event: dict[str, Any]) -> dict[st
 
 def transform(payload: dict[str, Any]) -> dict[str, Any]:
     event = _base_event(payload)
-    hook_name = payload.get("hook_event_name")
-    tool_name = _text(payload.get("tool_name"), 128)
-    tool_input = payload.get("tool_input")
+    hook_name = payload.get("hook_event_name") or payload.get("event_name") or FALLBACK_HOOK_EVENT
+    tool_name = _text(payload.get("tool_name") or payload.get("toolName") or payload.get("tool"), 128)
+    tool_input = payload.get("tool_input") or payload.get("tool_args")
     tool_response = payload.get("tool_response")
 
     if hook_name == "PostToolUse" and tool_name == "Agent":

@@ -203,9 +203,11 @@ describe('HttpServer request boundaries', () => {
 
   test('reports local runtime presence without command arguments', async () => {
     const { server } = createServer();
-    server.runtimeScanner = { scan: jest.fn(() => [
-      { pid: 12, parentPid: 1, terminal: 'ttys003', runtime: 'Claude Code', surface: 'CLI', telemetry: 'hooks' }
-    ]) };
+    server.runtimeMonitor = { current: jest.fn(() => ({
+      timestamp: '2026-01-01T00:00:00.000Z',
+      processes: [{ pid: 12, parentPid: 1, terminal: 'ttys003', runtime: 'Claude Code', surface: 'CLI', telemetry: 'hooks' }],
+      lmStudio: { available: false, models: [] }
+    })) };
     const res = response();
 
     await server.handleRequest(request('GET', '/runtimes'), res);
@@ -213,6 +215,15 @@ describe('HttpServer request boundaries', () => {
     expect(JSON.parse(res.body).processes).toEqual([
       { pid: 12, parentPid: 1, terminal: 'ttys003', runtime: 'Claude Code', surface: 'CLI', telemetry: 'hooks' }
     ]);
+  });
+
+  test('returns persisted runtime resource summaries', async () => {
+    const { server } = createServer();
+    server.runtimeMonitor = { summary: jest.fn(() => ({ snapshots: 3, runtimes: [] })) };
+    const res = response();
+    await server.handleRequest(request('GET', '/runtimes/summary?since=2026-01-01'), res);
+    expect(JSON.parse(res.body)).toEqual({ snapshots: 3, runtimes: [] });
+    expect(server.runtimeMonitor.summary).toHaveBeenCalledWith({ since: '2026-01-01', limit: undefined });
   });
 
   test('installs supported local integrations from the dashboard', async () => {

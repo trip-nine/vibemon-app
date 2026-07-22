@@ -2,7 +2,8 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const {
-  installClaudeHooks, installCodexHooks, EVENTS, CODEX_EVENTS
+  installClaudeHooks, installCodexHooks, installAntigravityHooks,
+  EVENTS, CODEX_EVENTS, ANTIGRAVITY_EVENTS
 } = require('../scripts/install-local-hooks.cjs');
 
 describe('installClaudeHooks', () => {
@@ -50,5 +51,35 @@ describe('installCodexHooks', () => {
     const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
     expect(settings.hooks.UserPromptSubmit[0].hooks[0].command).toBe('existing');
     for (const eventName of CODEX_EVENTS) expect(settings.hooks[eventName]).toHaveLength(1);
+  });
+});
+
+describe('installAntigravityHooks', () => {
+  let home;
+  let workspace;
+  beforeEach(() => {
+    home = fs.mkdtempSync(path.join(os.tmpdir(), 'vibemon-antigravity-home-'));
+    workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'vibemon-antigravity-workspace-'));
+  });
+  afterEach(() => {
+    fs.rmSync(home, { recursive: true, force: true });
+    fs.rmSync(workspace, { recursive: true, force: true });
+  });
+
+  test('installs a documented workspace hook without replacing existing hooks', () => {
+    const settingsPath = path.join(workspace, '.agents', 'hooks.json');
+    fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+    fs.writeFileSync(settingsPath, JSON.stringify({ enabled: true, PreToolUse: [{ matcher: 'other', command: 'existing' }] }));
+
+    const first = installAntigravityHooks(workspace, { home });
+    const second = installAntigravityHooks(workspace, { home });
+    const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+
+    expect(first.changed).toBe(true);
+    expect(second.changed).toBe(false);
+    expect(first.events).toEqual(ANTIGRAVITY_EVENTS);
+    expect(settings.PreToolUse).toHaveLength(2);
+    expect(settings.PreToolUse[1]).toMatchObject({ matcher: 'run_command', timeout: 5 });
+    expect(settings.PreToolUse[1].command).toContain('VIBEMON_RUNTIME=antigravity');
   });
 });

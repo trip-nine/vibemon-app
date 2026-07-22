@@ -1,6 +1,6 @@
 {
   "name": "vibemon",
-  "version": "2.5.3-local.3",
+  "version": "2.5.3-local.4",
   "description": "Local-only AI agent operations recorder and status monitor",
   "main": "src/main.js",
   "bin": {
@@ -15,6 +15,8 @@
     "build:linux": "electron-builder --linux --publish never",
     "build:all": "electron-builder --mac --win --linux --publish never",
     "install:local-hooks": "node scripts/install-local-hooks.cjs",
+    "install:codex-hooks": "node scripts/install-local-hooks.cjs --codex",
+    "install:antigravity-hooks": "node scripts/install-local-hooks.cjs --antigravity",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "test": "jest",

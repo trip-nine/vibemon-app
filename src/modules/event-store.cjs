@@ -199,6 +199,7 @@ class EventStore {
     const projects = new Set();
     const models = new Map();
     const tools = new Map();
+    const runtimes = new Map();
 
     for (const event of events) {
       if (event.sessionId) sessions.add(event.sessionId);
@@ -213,6 +214,7 @@ class EventStore {
         models.set(event.model, current);
       }
       if (event.tool) tools.set(event.tool, (tools.get(event.tool) || 0) + 1);
+      if (event.runtime) runtimes.set(event.runtime, (runtimes.get(event.runtime) || 0) + 1);
     }
 
     return {
@@ -236,6 +238,7 @@ class EventStore {
         reportedCostUsd: Number(item.costUsd.toFixed(6))
       })).sort((a, b) => b.tokens - a.tokens || b.events - a.events),
       tools: [...tools.entries()].map(([tool, count]) => ({ tool, count })).sort((a, b) => b.count - a.count),
+      runtimes: [...runtimes.entries()].map(([runtime, events]) => ({ runtime, events })).sort((a, b) => b.events - a.events),
       storage: this.getStorageInfo()
     };
   }
